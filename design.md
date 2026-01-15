@@ -17,7 +17,7 @@
    - WS 接收流式回答 → LCD 显示进度 → 本地 TTS 语音播报
 
 2. **会话管理**
-   - 用户 **双击** → 进入清库确认界面
+   - 用户 **超长按 ≥3s** → 进入清库确认界面
    - **长按确认** → DELETE + POST /session → 清理 Qdrant 数据 + Pi 本地缓存
 
 ---
@@ -56,7 +56,7 @@
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
 │  │ UI Renderer │  │Input Handler│  │State Machine│              │
 │  │ (LCD 渲染)  │  │ (按键识别)  │  │  (状态机)   │              │
-│  │ PIL/Pillow  │  │短按/长按/双击│  │ 7 状态+Busy │              │
+│  │ PIL/Pillow  │  │短按/长按/超长按│  │ 7 状态+Busy │              │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
 │         │                │                │                      │
 │         └────────────────┴────────────────┘                      │
@@ -90,16 +90,17 @@
 #### 2. Input Handler（按键识别）
 - **输入**：GPIO 原始事件（按下/释放）
 - **输出**：手势/阈值事件（建议统一为阈值到达触发，避免“释放时机”误触发）
-  - `EVT_TAP`（短按确认，松开后判定）
+  - `EVT_TAP`（短按确认，松开后**立即执行**，无延迟）
   - `EVT_HOLD_RECORD_REACHED`（按住达到 600ms，进入录音态）
   - `EVT_HOLD_CANCEL_REACHED`（按住达到 1200ms，取消/确认在到达时立即触发，不依赖松开）
-  - `EVT_DOUBLE_CLICK`（进入菜单确认，不直接执行破坏性动作）
+  - `EVT_HOLD_MENU_REACHED`（Idle 超长按达到 3000ms，进入菜单确认）
 - **实现要点**：
   - 去抖：`T_DEBOUNCE_MS=50`
   - Tap 判定窗口：`T_TAP_MIN_MS=80`，`T_TAP_MAX_MS=300`（<80ms 视为抖动忽略；>300ms 不算 tap）
+  - Tap **立即执行**：松开后满足窗口即刻触发，不等待（确保拍照即时响应）
   - Hold-to-record：`T_HOLD_TO_RECORD_MS=600`（到达即强反馈，进入 Recording）
   - Hold-to-cancel/confirm：`T_HOLD_TO_CANCEL_MS=1200`（到达即执行取消/确认）
-  - Double-click：两次 tap 间隔 `T_DOUBLE_CLICK_GAP_MS=250`；**tap 动作需延迟 ≤250ms 以便识别双击**
+  - Hold-to-menu：`T_HOLD_MENU_MS=3000`（仅 Idle 有效；一旦进入 Recording，本次按压不再触发菜单）
   
   > 实现提示：Pre-hold 的 UI/LED 更新应走同一套 UIState 更新链路，并做节流（例如 100ms 更新一次计时文本），避免 SPI 推屏频率过高。
 
@@ -357,15 +358,14 @@ else:
 - `T_PREHOLD_MS = 300`（按住预备态提示阈值）
 - `T_HOLD_TO_RECORD_MS = 600`（到达即进入录音态并强反馈）
 - `T_HOLD_TO_CANCEL_MS = 1200`（到达即取消/确认，不依赖松开）
-- `T_DOUBLE_CLICK_GAP_MS = 250`（双击间隔窗口）
+- `T_HOLD_MENU_MS = 3000`（仅 Idle 有效，超长按进入菜单确认）
 
 #### 3.2.2 触发规则（关键）
-- **Tap（短按）**：松开后若 `80–300ms` 且未构成双击 → 触发短按动作（Idle=拍照；Answering=静音切换；MenuConfirm=取消）
-- **Pre-hold（按住预备态）**：按住达到 300ms 进入预备态（只反馈、无副作用）,松开在 300–600ms 仍然无动作（但用户已看到提示）
+- **Tap（短按）**：松开后若 `80–300ms` → **立即触发**短按动作（Idle=拍照；Answering=静音切换；MenuConfirm=取消），**无延迟**
+- **Pre-hold（按住预备态）**：按住达到 300ms 进入预备态（只反馈、无副作用），松开在 300–600ms 仍然无动作（但用户已看到提示）
 - **Hold-to-talk（按住说话）**：按住达到 `600ms` → 立即进入 Recording（强反馈）；松开 → 结束录音并进入“有效性判定”（通过才走 STT）
 - **Hold-to-cancel/confirm（长按取消/确认）**：在 Busy/Answering/MenuConfirm 中，按住达到 `1200ms` 即立刻执行取消/确认（**不等待松开**）
-- **Double-click（双击）**：两次 tap 间隔 `≤250ms` → 进入 MenuConfirm（不直接清库）
-- **双击判定**：必须将 tap 动作延迟 `≤250ms` 执行，以避免把双击拆成两次 tap
+- **Menu（Idle 超长按进入菜单确认）**：仅在 Idle 且未进入 Recording 前有效；按住达到 `3000ms` 即进入 MenuConfirm（不执行清库，仅进入确认态）。进入 Recording（600ms）后，本次按压不再触发菜单
 
 #### 3.2.3 强反馈（必须）
 - 到达 300ms：LED 蓝色变亮/轻呼吸 + LCD line2 显示“继续按住…”
@@ -383,13 +383,13 @@ else:
 | 项目 | 值 |
 |------|------|
 | 主图标 | 📷（若有最近照片则显示缩略图） |
-| 提示语 | 按住说话 / 短按拍照 |
+| 提示语 | 短按拍照 / 按住说话 / 超长按3s菜单 |
 | 底部第一行 | 待机 |
 | 底部第二行 | 会话: N张（或 Ready） |
 | LED | 🔵 蓝色常亮 |
 | 短按 | 拍照 → 入库（转 Busy） |
 | 长按保持 | 开始录音（转 S1） |
-| 双击 | 进入 S6 菜单 |
+| 超长按 ≥3s | 进入 S6 菜单 |
 
 #### S1 Recording（录音中）
 | 项目 | 值 |
@@ -444,7 +444,7 @@ else:
 | LED | 🔵 蓝色常亮 |
 | 短按 | 拍照入库（转 Busy） |
 | 长按保持 | 开始录音（转 S1） |
-| 双击 | 进入 S6 菜单 |
+| 超长按 ≥3s | 进入 S6 菜单 |
 
 #### S6 MenuConfirm（新会话/清理确认）
 | 项目 | 值 |
@@ -486,7 +486,7 @@ else:
 │录音中  │       │STT中 │         │问答中│      │ Done │
 └────────┘       └──────┘         └──────┘      └──────┘
 
-[任意状态] ─双击→ [S6 MenuConfirm] ─长按1.2s→ [清库] → [S0]
+[Idle] ─超长按≥3s→ [S6 MenuConfirm] ─长按1.2s→ [清库] → [S0]
                        │
                   短按/超时5s
                        ↓
@@ -503,10 +503,10 @@ else:
 
 | 事件 | 触发点 | 适用状态 | 说明 |
 |------|--------|----------|------|
-| `EVT_TAP` | 松开后判定 80–300ms 且未构成双击 | Idle/Answering/MenuConfirm | Idle=拍照；Answering=静音切换；MenuConfirm=取消 |
+| `EVT_TAP` | 松开后判定 80–300ms **立即触发** | Idle/Answering/MenuConfirm | Idle=拍照；Answering=静音切换；MenuConfirm=取消（**无延迟**） |
 | `EVT_HOLD_RECORD_REACHED` | 按住达到 600ms | Idle → Recording | **到达即切换录音态**（强反馈），避免用户犹豫松手误触发 |
 | `EVT_HOLD_CANCEL_REACHED` | 按住达到 1200ms | Busy/Answering/MenuConfirm | **到达即取消/确认，不依赖释放时机** |
-| `EVT_DOUBLE_CLICK` | 两次 tap 间隔 ≤250ms | Any → MenuConfirm | 只进入确认态，不直接清库 |
+| `EVT_HOLD_MENU_REACHED` | 按住达到 3000ms | Idle → MenuConfirm | 仅 Idle 有效；进入 Recording 后本次按压不触发菜单 |
 
 ---
 
@@ -579,7 +579,7 @@ else:
 
 ### 4.2 新建会话
 
-1. 用户 **双击** → 状态转为 menu → LCD 显示"新建会话？长按确认"
+1. 用户 **超长按 ≥3s** → 状态转为 menu → LCD 显示"新建会话？长按确认"
 2. 用户 **长按 1.2s** → 确认清库
 3. Device Agent → MBP：`DELETE /session/{session_id}`
    - MBP：Qdrant filter delete + 缓存清理
@@ -1369,7 +1369,7 @@ python -c "from hardware import LCD; LCD().show_text('Hello')"
 # 1. 启动 Device Agent，LCD 显示 idle 界面
 # 2. 短按 → LCD 显示 busy + ingest → 返回 idle
 # 3. 长按 → LCD 显示 recording + 录音时长滚动 → 松开
-# 4. 双击 → LCD 显示 menu 确认界面
+# 4. 超长按 ≥3s → LCD 显示 menu 确认界面
 
 # 验证 LED 颜色与状态同步
 
@@ -1446,9 +1446,9 @@ python -c "from hardware import LCD; LCD().show_text('Hello')"
 2. 短按拍照路由器说明书 → LCD 显示 busy → 入库完成
 3. 长按录音 "如何登录管理后台" → LCD 显示录音时长 → 松开
 4. 观察：LCD 显示 STT → 问答 → 流式回答 → 扬声器语音播报
-5. 双击 → LCD 显示清库确认 → 长按确认 → 新建会话
+5. 超长按 ≥3s → LCD 显示清库确认 → 长按确认 → 新建会话
 6. Busy/Answering 中按住 ≥1.2s：立刻停止播报、关闭 WS、清空队列，1 秒内无声音
-7. 双击进入清库确认态，短按取消不清库；长按 ≥1.2s 在到达时确认清库并新建会话
+7. 超长按 ≥3s 进入清库确认态，短按取消不清库；长按 ≥1.2s 在到达时确认清库并新建会话
 ```
 
 ---
@@ -1556,7 +1556,7 @@ cd Snap2Know
 | **摄像头** | ✅ picamera2 | Pi 官方 AI Camera |
 | **音频** | ✅ WM8960 arecord/aplay | Whisplay HAT 内置 |
 | **TTS** | ✅ 本地 espeak-ng（主）/ 云端 OpenAI（备选） | 低延迟、离线可用 |
-| **按键交互** | ✅ 单键 Push-to-Talk | 短按/长按/双击 |
+| **按键交互** | ✅ 单键 Push-to-Talk | 短按/长按/超长按 |
 | **状态机** | ✅ 7 状态（含 Busy 子阶段） | 优先级显示 + 800ms 驻留 |
 | **状态协议** | ✅ UIState dataclass | 单一真相源 |
 

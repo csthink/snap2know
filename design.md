@@ -89,13 +89,17 @@
 
 #### 2. Input Handler（按键识别）
 - **输入**：GPIO 原始事件（按下/释放）
-- **输出**：手势事件（`EVT_SHORT_PRESS`, `EVT_LONG_PRESS_START`, `EVT_LONG_PRESS_END`, `EVT_DOUBLE_CLICK`）
-- **实现**：
-  - 短按：< 300ms
-  - 长按并保持：≥ 600ms
-  - 长按释放后：≥ 1.2s（确认/取消）
-  - 双击：两次短按间隔 80-250ms
-  - 双击判定延迟 250ms（避免误拆）
+- **输出**：手势/阈值事件（建议统一为阈值到达触发，避免“释放时机”误触发）
+  - `EVT_TAP`（短按确认，松开后判定）
+  - `EVT_HOLD_RECORD_REACHED`（按住达到 600ms，进入录音态）
+  - `EVT_HOLD_CANCEL_REACHED`（按住达到 1200ms，取消/确认在到达时立即触发，不依赖松开）
+  - `EVT_DOUBLE_CLICK`（进入菜单确认，不直接执行破坏性动作）
+- **实现要点**：
+  - 去抖：`T_DEBOUNCE_MS=50`
+  - Tap 判定窗口：`T_TAP_MIN_MS=80`，`T_TAP_MAX_MS=300`（<80ms 视为抖动忽略；>300ms 不算 tap）
+  - Hold-to-record：`T_HOLD_TO_RECORD_MS=600`（到达即强反馈，进入 Recording）
+  - Hold-to-cancel/confirm：`T_HOLD_TO_CANCEL_MS=1200`（到达即执行取消/确认）
+  - Double-click：两次 tap 间隔 `T_DOUBLE_CLICK_GAP_MS=250`；**tap 动作需延迟 ≤250ms 以便识别双击**
 
 #### 3. State Machine（状态机）
 - **维护**：idle / recording / busy(stt|ingest|qa) / answering / done / menu / error
@@ -112,6 +116,10 @@
 
 #### 5. Audio Pipeline（音频处理）
 - **Recording**：arecord 指定 WM8960 声卡（启动时探测 card 编号）
+- **录音有效门槛（MVP 防误触）**：松开结束录音后，先做本地快速校验，再决定是否提交到 STT
+  - `MIN_AUDIO_DURATION_MS = 1000`：录音时长 < 1s → 视为“取消/无效”，不调用 STT，不进入 Busy(stt)
+  - （可选增强）`MAX_SILENCE_RATIO = 0.8`：静音占比过高 → 视为无效录音
+  - UI 行为：提示“录音过短/未检测到语音，未提交”，回 Idle
 - **Playback**：aplay 指定 WM8960 声卡
 - **TTS（默认）**：本地 espeak-ng 合成 → 播放队列（低延迟、离线可用）
 - **TTS（可选开关）**：请求 MBP `/tts`（云端 OpenAI TTS，音质更优）
@@ -336,16 +344,33 @@ else:
 | **主区域** | 180px | 大图标 + 1 行动作提示 +（可选）拍照缩略图 |
 | **底部状态** | 40px | 第一行=阶段+进度；第二行=阶段指标 |
 
-### 3.2 按键手势定义
+### 3.2 按键手势定义（防误触版）
 
-| 手势 | 定义 | 用途 |
-|------|------|------|
-| **短按** | Press < 300ms | 确认/继续/静音切换 |
-| **长按并保持** | Press ≥ 600ms | 录音（Push-to-Talk） |
-| **长按释放后** | 持续 ≥ 1.2s 后释放 | 取消/确认清库 |
-| **双击** | 两次短按间隔 80–250ms | 进入菜单（不直接执行破坏性操作） |
+> **设计目标**：把复杂度从用户手势迁移到系统判定与容错，降低高压力/不熟练误触发概率。
 
-> **双击判定**：必须延迟短按动作 250ms 以内（避免把双击拆成两次短按）
+#### 3.2.1 阈值参数（建议默认）
+- `T_DEBOUNCE_MS = 50`（去抖）
+- `T_TAP_MIN_MS = 80`（小于此按压视为抖动，忽略）
+- `T_TAP_MAX_MS = 300`（tap 上限）
+- `T_HOLD_TO_RECORD_MS = 600`（到达即进入录音态并强反馈）
+- `T_HOLD_TO_CANCEL_MS = 1200`（到达即取消/确认，不依赖松开）
+- `T_DOUBLE_CLICK_GAP_MS = 250`（双击间隔窗口）
+
+#### 3.2.2 触发规则（关键）
+- **Tap（短按）**：松开后若 `80–300ms` 且未构成双击 → 触发短按动作（Idle=拍照；Answering=静音切换；MenuConfirm=取消）
+- **Hold-to-talk（按住说话）**：按住达到 `600ms` → 立即进入 Recording（强反馈）；松开 → 结束录音并进入“有效性判定”（通过才走 STT）
+- **Hold-to-cancel/confirm（长按取消/确认）**：在 Busy/Answering/MenuConfirm 中，按住达到 `1200ms` 即立刻执行取消/确认（**不等待松开**）
+- **Double-click（双击）**：两次 tap 间隔 `≤250ms` → 进入 MenuConfirm（不直接清库）
+- **双击判定**：必须将 tap 动作延迟 `≤250ms` 执行，以避免把双击拆成两次 tap
+
+#### 3.2.3 强反馈（必须）
+- 到达 `600ms`（进入录音态）：
+  - LED：蓝 → 黄（常亮）
+  - LCD：主图标切换 🎤，提示语切为“松开结束”
+  - 可选：提示音“滴”一次（≤100ms）
+- 到达 `1200ms`（取消/确认）：
+  - 在到达瞬间立即执行动作（取消/确认）
+  - LCD 给出“已取消/已确认”提示，保持 800ms 后回 Idle
 
 ### 3.3 状态定义
 
@@ -469,6 +494,15 @@ else:
                       [S0]
 ```
 
+### 3.5 事件与触发点（防误触规则）
+
+| 事件 | 触发点 | 适用状态 | 说明 |
+|------|--------|----------|------|
+| `EVT_TAP` | 松开后判定 80–300ms 且未构成双击 | Idle/Answering/MenuConfirm | Idle=拍照；Answering=静音切换；MenuConfirm=取消 |
+| `EVT_HOLD_RECORD_REACHED` | 按住达到 600ms | Idle → Recording | **到达即切换录音态**（强反馈），避免用户犹豫松手误触发 |
+| `EVT_HOLD_CANCEL_REACHED` | 按住达到 1200ms | Busy/Answering/MenuConfirm | **到达即取消/确认，不依赖释放时机** |
+| `EVT_DOUBLE_CLICK` | 两次 tap 间隔 ≤250ms | Any → MenuConfirm | 只进入确认态，不直接清库 |
+
 ---
 
 ## 4. 端到端时序（并行 + 流式 + 语音播报）
@@ -524,8 +558,9 @@ else:
 2. Device Agent → MBP：`POST /upload/image?session_id=...`
    - MBP：Claude Opus OCR → 切块 → Embedding → Qdrant upsert
 3. 用户 **长按（Push-to-Talk）** → arecord 开始录音 → LCD 显示录音时长
-4. 用户 **松开** → 录音结束
-5. Device Agent → MBP：`POST /upload/audio?session_id=...`
+4. 用户 **松开** → 录音结束  
+4.1 Device Agent **本地有效性判定**（防误触）：录音时长 < 1s（或静音占比过高）→ 不提交 STT/问答，提示“未提交”，回 Idle  
+5. Device Agent → MBP：`POST /upload/audio?session_id=...`（仅在有效录音时触发）
    - MBP：OpenAI STT 返回 question_text
 6. Device Agent → MBP：连接 `WS /ws/chat?session_id=...`
    - 发送 `{question_text, top_k}`
@@ -1332,6 +1367,11 @@ python -c "from hardware import LCD; LCD().show_text('Hello')"
 # 4. 双击 → LCD 显示 menu 确认界面
 
 # 验证 LED 颜色与状态同步
+
+# 防误触用例
+# 5. 按下 300–600ms 松开：不拍照、不录音、不进入 Busy（应保持 Idle）
+# 6. 达到 600ms 进入录音后立刻松开：进入 Recording 强反馈出现，但录音无效→不提交 STT，回 Idle
+# 7. Busy/Answering 中按住 ≥1.2s：在 1.2s 达到时立即取消/停止（不依赖释放）
 ```
 
 ---
@@ -1400,6 +1440,8 @@ python -c "from hardware import LCD; LCD().show_text('Hello')"
 3. 长按录音 "如何登录管理后台" → LCD 显示录音时长 → 松开
 4. 观察：LCD 显示 STT → 问答 → 流式回答 → 扬声器语音播报
 5. 双击 → LCD 显示清库确认 → 长按确认 → 新建会话
+6. Busy/Answering 中按住 ≥1.2s：立刻停止播报、关闭 WS、清空队列，1 秒内无声音
+7. 双击进入清库确认态，短按取消不清库；长按 ≥1.2s 在到达时确认清库并新建会话
 ```
 
 ---

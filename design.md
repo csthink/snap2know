@@ -100,6 +100,8 @@
   - Hold-to-record：`T_HOLD_TO_RECORD_MS=600`（到达即强反馈，进入 Recording）
   - Hold-to-cancel/confirm：`T_HOLD_TO_CANCEL_MS=1200`（到达即执行取消/确认）
   - Double-click：两次 tap 间隔 `T_DOUBLE_CLICK_GAP_MS=250`；**tap 动作需延迟 ≤250ms 以便识别双击**
+  
+  > 实现提示：Pre-hold 的 UI/LED 更新应走同一套 UIState 更新链路，并做节流（例如 100ms 更新一次计时文本），避免 SPI 推屏频率过高。
 
 #### 3. State Machine（状态机）
 - **维护**：idle / recording / busy(stt|ingest|qa) / answering / done / menu / error
@@ -352,18 +354,21 @@ else:
 - `T_DEBOUNCE_MS = 50`（去抖）
 - `T_TAP_MIN_MS = 80`（小于此按压视为抖动，忽略）
 - `T_TAP_MAX_MS = 300`（tap 上限）
+- `T_PREHOLD_MS = 300`（按住预备态提示阈值）
 - `T_HOLD_TO_RECORD_MS = 600`（到达即进入录音态并强反馈）
 - `T_HOLD_TO_CANCEL_MS = 1200`（到达即取消/确认，不依赖松开）
 - `T_DOUBLE_CLICK_GAP_MS = 250`（双击间隔窗口）
 
 #### 3.2.2 触发规则（关键）
 - **Tap（短按）**：松开后若 `80–300ms` 且未构成双击 → 触发短按动作（Idle=拍照；Answering=静音切换；MenuConfirm=取消）
+- **Pre-hold（按住预备态）**：按住达到 300ms 进入预备态（只反馈、无副作用）,松开在 300–600ms 仍然无动作（但用户已看到提示）
 - **Hold-to-talk（按住说话）**：按住达到 `600ms` → 立即进入 Recording（强反馈）；松开 → 结束录音并进入“有效性判定”（通过才走 STT）
 - **Hold-to-cancel/confirm（长按取消/确认）**：在 Busy/Answering/MenuConfirm 中，按住达到 `1200ms` 即立刻执行取消/确认（**不等待松开**）
 - **Double-click（双击）**：两次 tap 间隔 `≤250ms` → 进入 MenuConfirm（不直接清库）
 - **双击判定**：必须将 tap 动作延迟 `≤250ms` 执行，以避免把双击拆成两次 tap
 
 #### 3.2.3 强反馈（必须）
+- 到达 300ms：LED 蓝色变亮/轻呼吸 + LCD line2 显示“继续按住…”
 - 到达 `600ms`（进入录音态）：
   - LED：蓝 → 黄（常亮）
   - LCD：主图标切换 🎤，提示语切为“松开结束”
@@ -1369,9 +1374,11 @@ python -c "from hardware import LCD; LCD().show_text('Hello')"
 # 验证 LED 颜色与状态同步
 
 # 防误触用例
-# 5. 按下 300–600ms 松开：不拍照、不录音、不进入 Busy（应保持 Idle）
-# 6. 达到 600ms 进入录音后立刻松开：进入 Recording 强反馈出现，但录音无效→不提交 STT，回 Idle
-# 7. Busy/Answering 中按住 ≥1.2s：在 1.2s 达到时立即取消/停止（不依赖释放）
+# 5. 按住 350ms：必须出现 Pre-hold 轻反馈（LED 变亮 + LCD 显示“继续按住…”）
+# 6. 按住 550ms：仍处 Pre-hold，不进入录音（不应变黄、不应显示 🎤）
+# 7. 按下 300–600ms 松开：不拍照、不录音、不进入 Busy（应保持 Idle）
+# 8. 达到 600ms 进入录音后立刻松开：进入 Recording 强反馈出现，但录音无效→不提交 STT，回 Idle
+# 9. Busy/Answering 中按住 ≥1.2s：在 1.2s 达到时立即取消/停止（不依赖释放）
 ```
 
 ---

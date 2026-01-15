@@ -415,7 +415,8 @@ else:
 | 清库 | 需二次确认，5 秒超时自动取消 |
 
 **成本估算提示**
-- Claude Opus OCR：约 $0.01-0.03/张图
+- Claude Sonnet OCR（Vision）：约 $0.003-0.01/张图（比 Opus 便宜）
+- GPT-4o OCR（备选）：约 $0.005-0.02/张图
 - OpenAI Embedding：约 $0.0001/chunk
 - Claude Sonnet：约 $0.003/千 token
 - OpenAI TTS（备选）：约 $0.015/千字符
@@ -661,7 +662,8 @@ else:
 **详细步骤**
 1. 用户 **短按** → picamera2 拍照 → LCD 显示缩略图
 2. Device Agent → MBP：`POST /upload/image?session_id=...`
-   - MBP：Claude Opus OCR → 切块 → Embedding → Qdrant upsert
+   - MBP：**Claude Sonnet（Vision）OCR（主）** → 切块 → Embedding → Qdrant upsert
+   - **回退策略**：若 OCR 超时/失败 → **GPT-4o Vision OCR（备选）** → 切块 → Embedding → Qdrant upsert
 3. 用户 **长按（Push-to-Talk）** → arecord 开始录音 → LCD 显示录音时长
 4. 用户 **松开** → 录音结束  
 4.1 Device Agent **本地有效性判定**（防误触）：录音时长 < 1s（或静音占比过高）→ 不提交 STT/问答，提示“未提交”，回 Idle  
@@ -830,10 +832,33 @@ else:
 ### 7.2 Upload
 
 **POST /upload/image?session_id=…（multipart）**
-- Resp：{image_id, num_chunks, ingest_ms, dedup_skipped?}
+- Resp：{image_id, num_chunks, ingest_ms, dedup_skipped?, ocr_provider, fallback_used, ocr_ms}
 
 **POST /upload/audio?session_id=…（multipart）**
 - Resp：{question_text, stt_ms}
+
+### 7.2.1 OCR Provider 策略（即拍即问优先）
+
+> **设计目标**：避免拍照后等待 10 秒的 Opus 延迟，确保即拍即问体验
+
+**默认策略**
+- **主 OCR**：Claude Sonnet（Vision）— 快速、成本适中
+- **备选 OCR**：GPT-4o（Vision）— 超时/失败回退
+
+**超时与回退（必须）**
+| 参数 | 值 | 说明 |
+|------|------|------|
+| `OCR_PRIMARY_TIMEOUT_SEC` | 4.0 | 超过 4s 未完成，触发回退 |
+| `OCR_FALLBACK_TIMEOUT_SEC` | 6.0 | 备选仍失败，返回 error |
+
+**返回结构增强（用于可观测性与验收）**
+| 字段 | 说明 |
+|------|------|
+| `ocr_provider` | `"claude_sonnet"` / `"gpt4o"` |
+| `fallback_used` | `true` / `false` |
+| `ocr_ms` / `chunk_ms` / `embed_ms` / `qdrant_ms` | 各阶段耗时 |
+
+> 说明：超时阈值可根据实测调整，但必须在设计中固化为 SLA
 
 ### 7.3 WebSocket
 
@@ -957,7 +982,8 @@ mode = "local"  # local | cloud
 **FastAPI 单体服务，监听 0.0.0.0:8000**
 - 会话管理：POST /session、DELETE /session/{id}
 - 图片入库（OCR/RAG ingestion）：
-  - Claude Opus 视觉抽取文字块 → block 切块（200–500 chars）→ OpenAI Embedding → Qdrant upsert
+  - **Claude Sonnet（Vision）OCR（主）** → block 切块（200–500 chars）→ OpenAI Embedding → Qdrant upsert
+  - **备选**：GPT-4o Vision OCR（超时回退）
 - 音频 STT：
   - OpenAI audio/transcriptions → question_text
 - 问答编排：
@@ -976,7 +1002,7 @@ mode = "local"  # local | cloud
 - session_id, image_id, chunk_index, text, created_at
 
 ### 8.2 切块策略（block）
-- Opus 输出 block（段落/块）
+- Vision OCR 输出 block（段落/块）（主：Claude Sonnet；备：GPT-4o）
 - 二次切分到 200–500 chars
 - embedding 入库
 
@@ -992,43 +1018,155 @@ mode = "local"  # local | cloud
 
 ### 8.5 Pi 端 TTS 分段与播放（Device Agent）
 
-**目标：** 流式体验 + 连贯语音
+**目标：** 流式体验 + 连贯语音（支持中断、可降级）
 
-**触发 flush 条件**（任一满足）：
-- 命中句末标点：。！？； 或换行
-- buffer ≥ 80 字符
-- 距上次 flush ≥ 1.2 秒
-- WS 收到 `{type:"done"}` 强制 flush 剩余
+- 分段/清洗/背压规则遵循《文本分段（TTS Buffer）与队列背压（必须）》章节（含 `.` 断句保护与队列背压策略）
+- Pi 端实现仅负责：token → buffer → 按规则 flush → tts_queue → 播放  
+- **重要语义区分**：
+  - **停止播报（Stop Playback）**：仅停止当前发声与清空播放队列，不影响 WS 是否继续接收文本
+  - **取消问答（Cancel Round）**：关闭/忽略 WS 后续 token + 停止播报 + 回 Idle
 
-**实现机制**（主路径：本地 TTS）：
+---
+
+#### 实现机制（主路径：本地 TTS）
+
+> 说明：本代码块是“机制示例”。真正的 flush 判定应调用统一分段器（实现于《文本分段…》章节），其中包含 `.` 断句保护（缩写/版本号/URL）与背压合并策略。
+
 ```python
-# 分段缓冲
-tts_buffer = ""
-tts_queue = queue.Queue(maxsize=20)
+import queue, time, subprocess, tempfile, os
+from threading import Event, Lock
 
-def on_token(token):
-    global tts_buffer
-    tts_buffer += token
-    if should_flush(tts_buffer):
-        segment = tts_buffer
+# === 全局配置（与文档前文章节保持一致） ===
+TTS_QUEUE_MAX = 15
+AUDIO_DEVICE = "plughw:1,0"  # 示例：实际由启动探测/配置注入
+FLUSH_TIME_LIMIT_SEC = 1.2
+FLUSH_MAX_CHARS = 100
+
+# === 状态与同步 ===
+tts_buffer = ""
+tts_queue = queue.Queue(maxsize=TTS_QUEUE_MAX)
+last_flush_ts = 0.0
+
+# cancel_round_event：代表“取消本轮问答”（忽略后续 token）；stop_playback 不应 set 它
+cancel_round_event = Event()
+
+# 进程句柄（用于可中断播放）
+proc_lock = Lock()
+current_aplay = None
+current_tts_proc = None  # 可选：用于终止正在合成的 TTS
+
+def segmenter_should_flush(buffer: str, now: float, last_flush: float, is_done: bool=False) -> bool:
+    """
+    统一分段器入口（示例最小实现）：
+    - done 强制 flush
+    - 时间上限 flush
+    - 强标点 flush（实际实现需含 '.' 保护：缩写/版本号/URL 等）
+    - 最大长度 flush
+    """
+    if is_done and buffer.strip():
+        return True
+    if now - last_flush >= FLUSH_TIME_LIMIT_SEC and buffer.strip():
+        return True
+
+    # 强标点（示例）：实际版本应在 '.' 处做保护判断
+    strong_punct = ["。", "！", "？", "；", "\n", ".", "!", "?", ";"]
+    if any(p in buffer for p in strong_punct) and len(buffer.strip()) >= 6:
+        return True
+
+    if len(buffer) >= FLUSH_MAX_CHARS:
+        return True
+
+    return False
+
+def flush_segment(is_done: bool=False):
+    global tts_buffer, last_flush_ts
+    now = time.time()
+    if segmenter_should_flush(tts_buffer, now, last_flush_ts, is_done=is_done):
+        segment = tts_buffer.strip()
         tts_buffer = ""
-        tts_queue.put(segment)
+        last_flush_ts = now
+        if segment:
+            # 背压：队列满时可选择“合并尾段”而非丢弃（详见前文章节）
+            tts_queue.put(segment)
+
+def on_token(token: str):
+    global tts_buffer
+    if cancel_round_event.is_set():
+        return
+    tts_buffer += token
+    flush_segment(is_done=False)
+
+def on_done():
+    flush_segment(is_done=True)
+
+def stop_playback():
+    """
+    停止播报：只影响“发声”，不取消本轮问答（WS 仍可继续接收并累计文本/或继续显示 UI）。
+    """
+    # 清空播放队列
+    while not tts_queue.empty():
+        try:
+            tts_queue.get_nowait()
+        except Exception:
+            break
+
+    # 终止当前播放进程
+    with proc_lock:
+        if current_aplay and current_aplay.poll() is None:
+            # terminate 不一定立刻停，必要时可 kill
+            current_aplay.terminate()
+
+def cancel_round():
+    """
+    取消本轮问答：忽略后续 token + 停止播报（用于 Busy/Answering 的长按取消）。
+    """
+    cancel_round_event.set()
+    stop_playback()
+
+def start_new_round():
+    """
+    新一轮问答开始前调用：清除“取消本轮”标志，使后续 token 可进入 buffer/队列。
+    """
+    cancel_round_event.clear()
 
 def tts_worker():
+    global current_aplay, current_tts_proc
     while True:
         segment = tts_queue.get()
-        # 本地 TTS（主路径）
-        subprocess.run(["espeak-ng", "-v", "zh", "-w", "/tmp/tts.wav", segment])
-        subprocess.run(["aplay", "-D", AUDIO_DEVICE, "/tmp/tts.wav"])
-```
 
+        # 如果已取消本轮，丢弃队列段
+        if cancel_round_event.is_set():
+            continue
+
+        # 生成临时 wav，避免覆盖
+        fd, wav_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+
+        try:
+            # 本地 TTS（主路径）
+            # 若你需要“可终止合成”，可用 Popen 保存 current_tts_proc 并在 stop/cancel 时 kill
+            current_tts_proc = subprocess.Popen(["espeak-ng", "-v", "zh", "-w", wav_path, segment])
+            current_tts_proc.wait()
+
+            with proc_lock:
+                current_aplay = subprocess.Popen(["aplay", "-D", AUDIO_DEVICE, wav_path])
+
+            current_aplay.wait()
+
+        finally:
+            try:
+                os.remove(wav_path)
+            except Exception:
+                pass
+
+```
+                
 **取消/停止语义**：
 | 场景 | 行为 |
 |------|------|
-| 长按停止播报 | `kill aplay` + 清空 `tts_queue` |
+| 长按停止播报 | 终止当前 aplay 进程（terminate/kill）+ 清空队列；（可选）终止当前 TTS 合成进程 |
 | 长按取消录音 | `kill arecord` + 丢弃音频 |
 | 长按取消问答 | 关闭 WS + 停止播报 + 返回 idle |
-
 ---
 
 ## 9. 运行与部署设计
@@ -1387,18 +1525,28 @@ curl -X POST -H "Content-Type: application/json" \
 #### Day 3：OCR 入库（图片→切块→Qdrant）
 
 **交付**
-- POST /upload/image → Claude Opus OCR → 切块 → Embedding → Qdrant
+- POST /upload/image → **Claude Sonnet（Vision）OCR（主）** → 切块 → Embedding → Qdrant
+- 回退：OCR 超时/失败 → **GPT-4o Vision OCR（备选）** → 切块 → Embedding → Qdrant
 
 **验收**
 ```bash
 # 1. 上传路由器说明书照片
 curl -X POST -F "image=@router_manual.jpg" \
   "http://localhost:8000/upload/image?session_id=xxx"
-# 返回 {image_id, num_chunks: 12, ingest_ms: 3456}
+# 返回 {image_id, num_chunks: 12, ingest_ms: 3456, ocr_provider: "claude_sonnet"}
 
 # 2. 验证 Qdrant 数据
 curl "http://localhost:6333/collections/snap2know_chunks/points/count?filter=..."
 # count > 0
+
+# 3. 体验型 SLA 验收（避免"拍照后等待 10 秒"）
+# 期望：局域网正常、MBP 空闲时，ingest_ms 在多数情况下较短
+# - p95 ingest_ms <= 4000ms（建议目标，可按实测调整）
+# - 若 OCR 端超时/失败，应自动回退到备选模型，最终仍成功入库（count > 0）
+
+# 4. 回退路径验收（故意触发主 OCR 超时/失败）
+# 方法示例：临时把 OCR 主模型 timeout 配得很小（如 0.5s）或断开主模型出网
+# 预期：返回中 fallback_used=true 且 ocr_provider="gpt4o"，并最终 num_chunks>0
 ```
 
 ---

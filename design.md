@@ -1167,6 +1167,104 @@ def tts_worker():
 | 长按停止播报 | 终止当前 aplay 进程（terminate/kill）+ 清空队列；（可选）终止当前 TTS 合成进程 |
 | 长按取消录音 | `kill arecord` + 丢弃音频 |
 | 长按取消问答 | 关闭 WS + 停止播报 + 返回 idle |
+
+---
+
+#### WM8960 Pop/Click 风险（已知硬件特性）与缓解策略
+
+**风险说明：**
+- WM8960 在 Linux ALSA 下，当 PCM 流频繁 open/close、mute/unmute、或功放使能切换时，硬件侧可能产生瞬态 **pop/click（“啪”声）**。
+- 当前若采用“每段 TTS 都启动一次 `aplay` 播放并退出”的机制，将导致 PCM 流频繁开关，pop/click 风险显著升高，尤其在流式分段较碎时会被放大为“每段一句啪一下”。
+
+**MVP 缓解策略（优先级从高到低）：**
+1) **首选：播放流常驻（推荐）**  
+   - 使用“`aplay` 常驻 + pipe 喂 raw PCM”或“Python 持久 PCM stream write”的方式：一次打开 PCM，持续写入音频，避免频繁 open/close。
+2) **段间淡入淡出（可选）**  
+   - 对每段音频增加 5–10ms fade-in/fade-out，并在段间插入 20–50ms 静音 padding，减少波形突变引发的 click（对 open/close pop 缓解有限）。
+3) **减少段数量（可选）**  
+   - 增大弱标点切分最小长度、提高 flush 时间上限、启用队列背压的尾段合并，降低播放段数。
+4) **Mixer/驱动层尝试（可选）**  
+   - 检查 `amixer` 是否提供 soft-mute/anti-pop 控件；若存在可在初始化时开启（视驱动暴露情况而定）。
+
+**验收建议：**
+- 连续播报 20 段以上分段语音，主观听感不应出现“每段都啪一下”的稳定 pop/click；若出现，优先切换到“播放流常驻”实现。
+
+---
+
+#### 推荐实现（v2）：`aplay` 常驻 + Pipe 喂 PCM（降低 pop/click）
+
+> 思路：只打开一次 ALSA PCM 流，后续把每段语音转换为统一格式的 raw PCM 并持续写入 `aplay` stdin，避免每段启动/退出导致的 pop/click。
+
+**约定统一音频格式：**
+- `SAMPLE_RATE = 16000`
+- `CHANNELS = 1`
+- `FORMAT = S16_LE`
+
+```python
+import subprocess, queue, tempfile, os
+
+SAMPLE_RATE = 16000
+CHANNELS = 1
+FORMAT = "S16_LE"
+
+tts_queue = queue.Queue(maxsize=TTS_QUEUE_MAX)
+
+# 1) 启动常驻 aplay（从 stdin 读取 raw PCM）
+aplay_proc = subprocess.Popen(
+    ["aplay", "-D", AUDIO_DEVICE, "-f", FORMAT, "-r", str(SAMPLE_RATE), "-c", str(CHANNELS)],
+    stdin=subprocess.PIPE
+)
+
+def write_pcm(pcm_bytes: bytes):
+    if aplay_proc.poll() is not None:
+        raise RuntimeError("aplay exited")
+    aplay_proc.stdin.write(pcm_bytes)
+    aplay_proc.stdin.flush()
+
+def tts_to_pcm_bytes(text: str) -> bytes:
+    """
+    示例：本地 TTS 先生成 wav，再用 ffmpeg 转 raw PCM。
+    也可以直接使用支持输出 raw 的 TTS 或库。
+    """
+    fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    raw_path = wav_path.replace(".wav", ".raw")
+    try:
+        subprocess.run(["espeak-ng", "-v", "zh", "-w", wav_path, text], check=False)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", wav_path, "-f", "s16le", "-acodec", "pcm_s16le",
+             "-ac", str(CHANNELS), "-ar", str(SAMPLE_RATE), raw_path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+        )
+        with open(raw_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in [wav_path, raw_path]:
+            try: os.remove(p)
+            except: pass
+
+def tts_worker_streaming():
+    while True:
+        segment = tts_queue.get()
+        pcm = tts_to_pcm_bytes(segment)
+        write_pcm(pcm)
+
+def stop_playback_stream():
+    """
+    停止播报（不取消问答）：不建议频繁重启 aplay（会把 pop 风险带回来）。
+    推荐：清空队列 + 写入 50ms 静音 padding。
+    """
+    while not tts_queue.empty():
+        try: tts_queue.get_nowait()
+        except: break
+    silence_50ms = b"\x00\x00" * int(SAMPLE_RATE * 0.05)  # 16-bit mono
+    write_pcm(silence_50ms)
+```
+
+**验收建议**
+- 连续播报 20 段以上分段语音，主观听感不应出现"每段都啪一下"的稳定 pop/click
+- 若出现，优先切换到"播放流常驻"实现
+
 ---
 
 ## 9. 运行与部署设计
@@ -1195,6 +1293,27 @@ def tts_worker():
 CARD_NUM=$(aplay -l | grep -i wm8960 | head -1 | sed 's/card \([0-9]*\):.*/\1/')
 export AUDIO_DEVICE="plughw:${CARD_NUM},0"
 ```
+
+**全局默认声卡设置（推荐）**：
+
+> 目的：防止 `espeak-ng` 等工具忽略 `-D` 参数而使用 HDMI/耳机孔
+
+```bash
+# /etc/asound.conf（安装驱动后配置一次）
+cat > /etc/asound.conf << 'EOF'
+pcm.!default {
+    type plug
+    slave.pcm "plughw:wm8960"
+}
+
+ctl.!default {
+    type hw
+    card wm8960
+}
+EOF
+```
+
+> 说明：如果 WM8960 声卡名称不固定，可改用动态 card 编号（如 `plughw:1,0`）
 
 **可选**：
 - `/debug/state`（HTTP GET）或 `/debug/ws`（WebSocket）用于远程调试观察
@@ -1279,11 +1398,26 @@ sudo reboot
 aplay -l  # 应显示 wm8960 声卡
 arecord -l  # 应显示 wm8960 输入
 
-# 3. 测试音频
+# 3. 配置 WM8960 为全局默认声卡（必须！防止 espeak-ng/ffmpeg 使用 HDMI）
+sudo tee /etc/asound.conf << 'EOF'
+pcm.!default {
+    type plug
+    slave.pcm "plughw:wm8960"
+}
+
+ctl.!default {
+    type hw
+    card wm8960
+}
+EOF
+
+# 4. 测试音频
 cd ~/Whisplay/example
 sudo bash run_test.sh  # LCD 显示测试图片，按键切换颜色
 sudo bash mic_test.sh  # 录音 10 秒并回放
 ```
+
+> ⚠️ **重要**：步骤 3 的全局默认声卡配置必须执行，否则 `espeak-ng`、`ffmpeg` 等工具会忽略 `-D` 参数而使用 HDMI 输出，导致"哑巴"现象
 
 ---
 
@@ -1327,9 +1461,26 @@ import time
 import subprocess
 from pathlib import Path
 
-# 假设 Whisplay 驱动已正确安装
-import sys
-sys.path.insert(0, '/home/pi/Whisplay/Driver')
+# Whisplay 驱动路径（优先使用环境变量，否则尝试常见位置）
+import sys, os
+WHISPLAY_PATH = os.environ.get("WHISPLAY_DRIVER_PATH")
+if not WHISPLAY_PATH:
+    # 尝试常见安装位置
+    candidates = [
+        os.path.expanduser("~/Whisplay/Driver"),
+        "/home/pi/Whisplay/Driver",
+        "/opt/Whisplay/Driver",
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            WHISPLAY_PATH = path
+            break
+if WHISPLAY_PATH:
+    sys.path.insert(0, WHISPLAY_PATH)
+else:
+    print("⚠️ 未找到 Whisplay Driver 路径，请设置 WHISPLAY_DRIVER_PATH 环境变量")
+    sys.exit(1)
+
 from Whisplay import Whisplay
 
 def test_led():

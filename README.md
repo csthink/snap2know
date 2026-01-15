@@ -17,6 +17,8 @@
 | **Raspberry Pi 5** | 16GB RAM, 64GB TF | 控制面：Device Agent |
 | **Whisplay HAT** | 240×280 LCD, WM8960, 双麦克风, 扬声器, LED, 按键 | 显示/音频/交互 |
 | **Pi AI Camera** | 官方 AI 摄像头 | 拍照 |
+| **Pi Active Cooler** | 官方主动散热器 | 防止过热 |
+| **Pi 官方电源** | 官方45W USB-C 电源，PD 5.1V/5A 电源线 | 供电 |
 | **MacBook Pro M2 Max** | 96GB RAM | 数据面：后端服务 |
 
 > Pi 5 和 MBP 在同一局域网内
@@ -145,8 +147,16 @@ git clone https://github.com/PiSugar/Whisplay.git
 cd Whisplay/Driver && sudo bash install_wm8960_drive.sh
 sudo reboot
 
+# 安装系统依赖（picamera2, espeak-ng, ffmpeg）
+sudo apt install -y python3-picamera2 espeak-ng ffmpeg
+
+# 安装 Python 依赖
+pip install edge-tts httpx websockets pillow qdrant-client --break-system-packages
+# 注：Pi OS Bookworm 需要 --break-system-packages 或使用 venv
+
 # 启动 Device Agent
 cd device_agent/
+export MBP_HOST=192.168.x.x:8000  # 替换为 MBP 的 IP
 python main.py
 ```
 

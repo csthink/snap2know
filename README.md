@@ -39,7 +39,7 @@
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
 │  │ UI Renderer │  │Input Handler│  │State Machine│              │
 │  │ (LCD 渲染)  │  │ (按键识别)  │  │  (状态机)   │              │
-│  │ PIL/Pillow  │  │短按/长按/双击│  │ 7 状态+Busy │              │
+│  │ PIL/Pillow  │  │短按/长按/超长按│  │ 7 状态+Busy │              │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
 │         │                │                │                      │
 │         └────────────────┴────────────────┘                      │
@@ -58,10 +58,10 @@
 │  MBP - FastAPI 后端                                              │
 │  ├── 会话管理 (/session)                                         │
 │  ├── STT (OpenAI Whisper)                                        │
-│  ├── OCR (Claude Opus Vision)                                    │
+│  ├── OCR (Claude Sonnet Vision（主）/ GPT-4o（备选）)                  │
 │  ├── Embedding (OpenAI)                                          │
 │  ├── 问答 (Claude Sonnet + RAG)                                  │
-│  ├── TTS (/tts 备选，本地 espeak-ng 为默认)                       │
+│  ├── TTS (/tts 可选，本地 edge-tts 为默认)                          │
 │  └── 向量库 (Qdrant Docker)                                      │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -70,8 +70,8 @@
 
 - **Pi 端**: 纯 Python 单进程直绘 LCD（不使用浏览器，SPI 直驱）
 - **UI 渲染**: PIL/Pillow + Whisplay 驱动，事件驱动刷新（10-15 FPS）
-- **按键交互**: 单键 Push-to-Talk（短按拍照、长按录音、双击清库）
-- **TTS**: 本地 espeak-ng（默认）/ 云端 OpenAI TTS（备选，TTS_MODE=cloud）
+- **按键交互**: 单键 Push-to-Talk（短按拍照、长按录音、超长按3s菜单）
+- **TTS**: edge-tts（默认）/ espeak-ng（降级）/ 云端 OpenAI TTS（TTS_MODE=cloud）
 
 ---
 
@@ -86,7 +86,7 @@
 | 录音中 | 松开 | 结束录音 → STT → 问答 |
 | 回答中 | 短按 | 静音/恢复 |
 | 回答中 | 长按 1.2s | 停止播报 |
-| 任意 | 双击 | 进入清库确认 |
+| 待机 | 超长按 ≥3s | 进入清库确认 |
 
 ### LCD 状态显示 (240×280)
 
@@ -112,7 +112,7 @@
 
 | 层级 | 技术 |
 |------|------|
-| **Pi 端** | Python, PIL/Pillow, picamera2, arecord/aplay, espeak-ng, Whisplay Driver |
+| **Pi 端** | Python, PIL/Pillow, picamera2, arecord/aplay, edge-tts, espeak-ng, Whisplay Driver |
 | **MBP 后端** | Python, FastAPI, Qdrant, httpx, websockets |
 | **AI 服务** | OpenAI (STT/TTS/Embedding), Anthropic Claude (OCR/LLM) |
 | **部署** | Docker (Qdrant), systemd (Device Agent) |

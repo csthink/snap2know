@@ -124,9 +124,73 @@
   - （可选增强）`MAX_SILENCE_RATIO = 0.8`：静音占比过高 → 视为无效录音
   - UI 行为：提示“录音过短/未检测到语音，未提交”，回 Idle
 - **Playback**：aplay 指定 WM8960 声卡
-- **TTS（默认）**：本地 espeak-ng 合成 → 播放队列（低延迟、离线可用）
-- **TTS（可选开关）**：请求 MBP `/tts`（云端 OpenAI TTS，音质更优）
+- **TTS（默认）**：edge-tts 合成 → 播放队列（自然语音、免费）
+- **TTS（降级）**：espeak-ng 离线合成（网络不可用/超时时自动降级）
+- **TTS（可选）**：请求 MBP `/tts`（云端 OpenAI TTS，最高音质）
 - **可中断**：长按停止时 `kill aplay` + `kill arecord` + 清空队列
+
+#### 6. TTS Provider 策略（体验优先 + 可用性降级）
+
+> **设计目标**：避免"高智商回答（Claude Sonnet）+ 机械语音（espeak-ng）"的体验违和感
+
+**Provider 优先级**
+1. **edge-tts（默认）**：自然语音、免费、无需 API Key
+2. **espeak-ng（降级）**：离线兜底，断网/限流时仍可播报
+3. **OpenAI TTS（可选）**：最高音质，需 API 调用（成本较高）
+
+**配置项**
+| 变量 | 值 | 说明 |
+|------|------|------|
+| `TTS_MODE` | `auto` | **默认**，优先 edge-tts，失败降级 espeak-ng |
+| `TTS_MODE` | `edge` | 强制 edge-tts，失败报错 |
+| `TTS_MODE` | `local` | 强制 espeak-ng（离线演示/稳定性测试） |
+| `TTS_MODE` | `cloud` | 使用 MBP `/tts`（OpenAI TTS） |
+
+**降级策略（`TTS_MODE=auto` 时生效）**
+| 参数 | 值 | 说明 |
+|------|------|------|
+| `EDGE_TTS_TIMEOUT_SEC` | 2.0 | 单段合成超过 2s 视为失败 |
+| `EDGE_TTS_FAIL_THRESHOLD` | 3 | 连续失败 3 次进入降级锁定 |
+| `EDGE_TTS_LOCK_SEC` | 300 | 降级锁定 5 分钟，期间直接走 espeak-ng |
+
+**降级流程**
+```python
+if tts_mode == "auto":
+    try:
+        audio = await asyncio.wait_for(
+            edge_tts.synthesize(text),
+            timeout=EDGE_TTS_TIMEOUT_SEC
+        )
+        edge_fail_count = 0
+    except (TimeoutError, NetworkError):
+        edge_fail_count += 1
+        if edge_fail_count >= EDGE_TTS_FAIL_THRESHOLD:
+            enter_degradation_lock()
+        audio = espeak_ng.synthesize(text)  # 降级
+```
+
+---
+
+#### 7. 文本分段（TTS Buffer）与队列背压
+
+**分段 Flush 规则（满足任一即切段）**
+| 条件 | 阈值 | 说明 |
+|------|------|------|
+| **强标点** | `。！？；\n` 或 `.?!;\n` | 立即切段 |
+| **弱标点 + 最小长度** | `，、,:` 且 buffer ≥ 30 字 | 切段（避免断句过短） |
+| **最大长度** | buffer ≥ 100 字 | 强制切段（避免等待过久） |
+| **时间上限** | 距上次 flush ≥ 1.2s | 保证持续出声 |
+| **流结束** | WS `done` | 强制 flush 剩余内容 |
+
+**清洗规则**
+- 连续空白/换行/标点折叠
+- flush 后段文本若为空/仅标点 → 丢弃
+
+**TTS 队列背压**
+| 参数 | 值 | 说明 |
+|------|------|------|
+| `TTS_QUEUE_MAX` | 15 | 队列上限 |
+| **超限策略** | 合并尾部未合成段 | 减少合成请求次数 |
 
 ### 2.4 UIState 数据结构（单一真相源）
 
@@ -205,6 +269,11 @@ class UIState:
 - 不打印完整说明书 OCR 文本（仅打印 chunk 数、字符数）
 - 不打印完整 STT 转写内容（仅打印长度）
 - 不打印 API 响应原文（仅打印状态码、耗时）
+
+**外部服务依赖（edge-tts）**
+- edge-tts 使用 Microsoft Edge 在线 TTS 服务，语音内容会出网
+- 企业环境需评估数据处理与合规要求
+- 可通过 `TTS_MODE=local` 强制使用 espeak-ng 离线播报
 
 ### 2.8 Device Agent 并发模型
 
@@ -987,7 +1056,7 @@ export AUDIO_DEVICE="plughw:${CARD_NUM},0"
 > **新架构要点**：
 > - Pi 端：纯 Python 单进程直绘 LCD
 > - 单键 Push-to-Talk 交互
-> - TTS：本地 espeak-ng（主）/ 云端 OpenAI（备选，TTS_MODE=cloud）
+> - TTS：edge-tts（默认）/ espeak-ng（降级）/ 云端 OpenAI（可选，TTS_MODE=cloud）
 > - 状态协议：UIState dataclass
 
 ---
@@ -1555,7 +1624,7 @@ cd Snap2Know
 | **UI 渲染** | ✅ PIL/Pillow + Whisplay 驱动 | 事件驱动刷新，10-15 FPS 上限 |
 | **摄像头** | ✅ picamera2 | Pi 官方 AI Camera |
 | **音频** | ✅ WM8960 arecord/aplay | Whisplay HAT 内置 |
-| **TTS** | ✅ 本地 espeak-ng（主）/ 云端 OpenAI（备选） | 低延迟、离线可用 |
+| **TTS** | ✅ edge-tts（默认）/ espeak-ng（降级） | 自然语音、免费、离线可用 |
 | **按键交互** | ✅ 单键 Push-to-Talk | 短按/长按/超长按 |
 | **状态机** | ✅ 7 状态（含 Busy 子阶段） | 优先级显示 + 800ms 驻留 |
 | **状态协议** | ✅ UIState dataclass | 单一真相源 |

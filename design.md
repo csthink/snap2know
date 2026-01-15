@@ -872,10 +872,17 @@ else:
 ### 7.4 TTS（语音合成）
 
 > **TTS 路径选择**（P1 明确）：
-> - **主路径（推荐）**：Pi 本地离线 TTS（espeak-ng），低延迟、免费、离线可用
-> - **备选路径**：MBP 云端 TTS（OpenAI TTS），音质更自然，但有延迟和成本
-> 
-> MVP 阶段建议使用 **本地 TTS 为主**，在需要更好音质的演示场景可切换到云端 TTS。
+> - **默认策略**：混合模式（Auto），优先使用 edge-tts，失败自动降级到 espeak-ng
+> - **云端模式**：TTS_MODE=cloud，强制使用 OpenAI TTS
+
+**TTS 模式配置**
+
+| 配置项 | 值 | 说明 |
+|--------|------|------|
+| `TTS_MODE` | `auto` | **默认**，优先 edge-tts，失败降级 espeak-ng |
+| `TTS_MODE` | `local` | 强制 espeak-ng（调试用） |
+
+> MVP 阶段默认使用 **edge-tts**（Pi 端，自然语音、免费），失败自动降级到 espeak-ng。在需要最高音质的演示场景可切换到云端 OpenAI TTS。
 
 **POST /tts（备选路径，用于高质量语音）**
 
@@ -1028,7 +1035,7 @@ mode = "local"  # local | cloud
 
 ---
 
-#### 实现机制（主路径：本地 TTS）
+#### 实现机制（v1 示例：本地 TTS/调试用）
 
 > 说明：本代码块是“机制示例”。真正的 flush 判定应调用统一分段器（实现于《文本分段…》章节），其中包含 `.` 断句保护（缩写/版本号/URL）与背压合并策略。
 
@@ -1186,12 +1193,25 @@ def tts_worker():
 4) **Mixer/驱动层尝试（可选）**  
    - 检查 `amixer` 是否提供 soft-mute/anti-pop 控件；若存在可在初始化时开启（视驱动暴露情况而定）。
 
-**验收建议：**
-- 连续播报 20 段以上分段语音，主观听感不应出现“每段都啪一下”的稳定 pop/click；若出现，优先切换到“播放流常驻”实现。
+> 现象提示：若出现“每段/每句稳定啪一下”的 pop/click，优先确认是否走 v2 常驻流；若仍存在，再考虑淡入淡出、减少段数或 amixer 控件等进一步缓解。
 
 ---
 
 #### 推荐实现（v2）：`aplay` 常驻 + Pipe 喂 PCM（降低 pop/click）
+
+> ⚠️ **v2 为默认启用**：默认配置必须走 v2，仅用于验证/调试时可临时切回 v1
+
+**实现选择**
+| 版本 | 机制 | 适用场景 |
+|------|------|----------|
+| **v2（默认）** | `aplay` 常驻 + pipe 喂 raw PCM | **生产默认**，Pop/Click 最小化 |
+| v1 | 每段启动 `aplay` 播放后退出 | 仅用于快速验证/调试，**不作为默认** |
+
+**语义约束（v2 路径）**
+| 函数 | 行为 | 是否关闭 WS |
+|------|------|-------------|
+| `stop_playback_stream()` | 清空队列 + 写静音 padding，**仅停止发声** | ❌ 不关闭 |
+| `cancel_round()` | 关闭/忽略 WS 后续 token + `stop_playback_stream()` + 回 Idle | ✅ 关闭 |
 
 > 思路：只打开一次 ALSA PCM 流，后续把每段语音转换为统一格式的 raw PCM 并持续写入 `aplay` stdin，避免每段启动/退出导致的 pop/click。
 
@@ -1280,11 +1300,13 @@ def stop_playback_stream():
 
 **依赖**：
 - Python 3.11+
+- ffmpeg（用于音频转码：wav → s16le raw PCM，以支持 v2 常驻播放流；pop/click 的核心缓解来自"常驻流避免频繁 open/close"，非 ffmpeg 本身）
 - Pillow（LCD 渲染）
 - picamera2（摄像头）
 - Whisplay Driver（LCD/LED/按键）
 - arecord/aplay（ALSA 音频）
-- espeak-ng（本地 TTS，主路径）
+- edge-tts（TTS 默认，自然语音、免费）
+- espeak-ng（TTS 降级/离线模式）
 - httpx, websockets（后端通信）
 
 **音频设备配置**：
@@ -1375,6 +1397,11 @@ EOF
 ssh pi@raspberrypi.local
 uname -a  # 确认 aarch64
 cat /etc/os-release  # 确认 Bookworm 或更新版本
+
+- 安装音频工具与转换依赖（v2 常驻播放流需要）
+
+sudo apt-get update
+sudo apt-get install -y alsa-utils ffmpeg
 ```
 
 ---
@@ -1870,6 +1897,11 @@ python -c "from hardware import LCD; LCD().show_text('Hello')"
 - [ ] 断网/限流模拟：单段 2s 超时后自动降级到 espeak-ng，整轮问答不中断
 - [ ] 连续失败 3 次：触发 5 分钟降级锁定，期间直接走 espeak-ng
 - [ ] 分段自然性：连续 10 句播报无"怪断句/空读/重复读"
+
+**v2 常驻播放流默认启用验收（必须）**
+- [ ] 默认配置（未显式切到 v1/调试模式）下，必须使用 **v2 常驻流**（`aplay` 常驻 + pipe 喂 PCM）
+- [ ] **不得**出现"每个 segment 启动一次 `aplay` 并退出"及其引发的稳定 pop/click
+- [ ] 验证：`ps -ef | grep aplay` 见长驻进程 或 日志 `audio_mode=v2` 持续
 
 **断句保护验收（可选）**
 - [ ] 句子含 `e.g.` / `v1.2.3` / URL 时，播报不在句点处产生不自然停顿

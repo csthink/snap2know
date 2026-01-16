@@ -208,4 +208,4 @@ Playing sound concurrently with display changes...
 
 ## 下一步
 
-✅ Whisplay 驱动安装完成，继续执行 **Day 0.3 摄像头驱动安装**
+✅ Whisplay 驱动安装完成，继续执行 [Day-0.3-摄像头驱动安装.md](./Day-0.3-摄像头驱动安装.md)

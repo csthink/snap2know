@@ -17,7 +17,7 @@
 |------|------|------|
 | **Raspberry Pi 5** | 16GB RAM, 64GB TF | 控制面：Device Agent |
 | **Whisplay HAT** | 240×280 LCD, WM8960, 双麦克风, 扬声器, LED, 按键 | 显示/音频/交互 |
-| **Pi AI Camera** | 官方 AI 摄像头 | 拍照 |
+| **Pi AI Camera** | 官方 AI 摄像头 Sony IMX500智能视觉传感器 1200w像素,支持手动调焦 | 拍照 |
 | **Pi Active Cooler** | 官方主动散热器 | 防止过热 |
 | **Pi 官方电源** | 官方45W USB-C 电源，官方原装 PD 5.1V/5A 电源线 | 供电 |
 | **MacBook Pro M2 Max** | 96GB RAM | 数据面：后端服务 |

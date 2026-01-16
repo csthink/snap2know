@@ -1436,7 +1436,7 @@ EOF
 # - 启用 SSH
 
 # 3. 验证
-ssh pi@raspberrypi.local
+ssh mars@raspberrypi
 uname -a  # 确认 aarch64
 cat /etc/os-release  # 确认 Bookworm 或更新版本
 

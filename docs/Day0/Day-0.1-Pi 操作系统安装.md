@@ -199,4 +199,4 @@ free -h
 
 ## 下一步
 
-✅ OS 安装完成，继续执行 **Day 0.2 Whisplay 驱动安装**
+✅ OS 安装完成，继续执行 [Day-0.2-Whisplay驱动安装.md](./Day-0.2-Whisplay驱动安装.md)

@@ -202,6 +202,7 @@ Playing sound concurrently with display changes...
 - [x] `arecord` + `aplay` 录放正常
 - [x] `run_test.sh` 全部通过（LCD、按键、音频）
 - [x] WM8960 已配置为默认声卡
+- [x] 已禁用有问题的 service：`sudo systemctl disable wm8960-soundcard.service`
 
 ---
 

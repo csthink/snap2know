@@ -169,6 +169,9 @@ python main.py
 Snap2Know/
 ├── README.md              # 本文件
 ├── Design.md              # 详细设计文档
+├── docs/                  # 学习与规划文档
+│   ├── learning_path.md   # 学习路径与技术栈总结
+│   └── two_week_roadmap.md # 两周开发学习地图
 ├── mbp/                   # MBP 后端
 │   ├── docker-compose.yml # Qdrant 部署
 │   └── snap2know/         # FastAPI 源码
@@ -229,3 +232,5 @@ Snap2Know/
 - [Whisplay HAT 官方文档](https://docs.pisugar.com/docs/product-wiki/whisplay/overview)
 - [Whisplay Driver GitHub](https://github.com/PiSugar/Whisplay)
 - [详细设计文档](./Design.md)
+- [学习路径与技术栈总结](./docs/learning_path.md)
+- [两周开发学习地图](./docs/two_week_roadmap.md)

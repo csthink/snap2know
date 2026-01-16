@@ -168,6 +168,12 @@ sudo apt-get install vim
 
 - 查看磁盘空间及内存
 
+```shell
+df -hT
+
+free -h
+```
+
 ![查看磁盘空间及内存](./images/raspberry_os_install_21.png)
 
 ---

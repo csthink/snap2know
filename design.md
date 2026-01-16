@@ -1493,23 +1493,33 @@ sudo bash mic_test.sh  # 录音 10 秒并回放
 #### Day 0.3：摄像头驱动安装
 
 **交付**
-- Pi AI Camera 连接到 CSI 接口
+- Pi AI Camera (IMX500) 连接到 CSI 接口
 - picamera2 库安装
+- libcamera-apps 安装
 
 **验收**
 ```bash
-# 1. 启用摄像头
-sudo raspi-config  # Interface Options → Camera → Enable
+# 1. 安装 IMX500 驱动（耗时约 30-40 分钟）
+sudo apt install -y imx500-all
 sudo reboot
 
-# 2. 安装 picamera2
-sudo apt update
-sudo apt install -y python3-picamera2
+# 2. 安装 picamera2 和 libcamera-apps
+sudo apt install -y python3-picamera2 libcamera-apps
 
-# 3. 验证拍照
-python3 -c "from picamera2 import Picamera2; cam = Picamera2(); cam.start(); cam.capture_file('/tmp/test.jpg')"
+# 3. 验证摄像头识别（trixie 使用 rpicam-* 命令）
+rpicam-hello --list-cameras
+# 预期输出：imx500 [4056x3040 10-bit RGGB]
+
+# 4. 命令行拍照测试
+rpicam-jpeg -o /tmp/test.jpg
 ls -la /tmp/test.jpg  # 确认图片存在
+
+# 5. Python picamera2 拍照测试
+python3 -c "from picamera2 import Picamera2; cam = Picamera2(); cam.start(); cam.capture_file('/tmp/picam_test.jpg')"
+ls -la /tmp/picam_test.jpg
 ```
+
+> 详细步骤参见 [Day-0.3-摄像头驱动安装.md](docs/Day0/Day-0.3-摄像头驱动安装.md)
 
 ---
 

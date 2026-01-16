@@ -1438,7 +1438,7 @@ EOF
 # 3. 验证
 ssh mars@raspberrypi
 uname -a  # 确认 aarch64
-cat /etc/os-release  # 确认 Bookworm 或更新版本
+cat /etc/os-release  # 确认 trixie 或更新版本
 
 - 安装音频工具与转换依赖（v2 常驻播放流需要）
 

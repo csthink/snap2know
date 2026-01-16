@@ -1,4 +1,4 @@
-# Raspberry Pi OS 安装指南
+# Day 0.1：Pi 操作系统安装
 
 > Day 0.1 前置任务：为 Snap2Know 设备烧录操作系统
 
@@ -25,7 +25,7 @@
 ![选择设备](./images/raspberry_os_install_1.png)
 
 ### 2.2 选择操作系统
-选择 **Raspberry Pi OS (64-bit)** — 必须是 64 位版本（Bookworm）
+选择 **Raspberry Pi OS (64-bit)** — 必须是 64 位版本（trixie）
 
 > ⚠️ **重要**：不要选择 Lite 版本，Snap2Know 需要桌面环境进行初始配置
 
@@ -118,18 +118,31 @@
 2. **接通电源**，等待 1-2 分钟
 3. **SSH 连接测试**：
 
-```bash
-ssh mars@raspberrypi
-# 或使用 IP 地址
-ssh mars@192.168.x.x
-```
+- 使用 `LanScan` 或 `Angry IP Scanner` 获取 Pi 的 IP 地址，后续使用 hostname 连接
 
-4. **验证系统版本**：
+![获取Pi IP](./images/raspberry_os_install_16.png)
+
 
 ```bash
-uname -a          # 确认 aarch64
-cat /etc/os-release  # 确认 Bookworm
+ssh mars@192.168.1.55
+
+# 验证系统版本
+cat /etc/os-release  # 确认 trixie
 ```
+
+![SSH IP 登录 Pi](./images/raspberry_os_install_17.png)
+
+![SSH hostname 登录 Pi](./images/raspberry_os_install_18.png)
+
+
+- 安装音频工具与转换依赖（v2 常驻播放流需要）
+
+```bash
+sudo apt-get update
+sudo apt-get install -y alsa-utils ffmpeg
+```
+
+![安装音频工具与转换依赖](./images/raspberry_os_install_19.png)
 
 ---
 

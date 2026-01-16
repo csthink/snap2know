@@ -1546,8 +1546,10 @@ WHISPLAY_PATH = os.environ.get("WHISPLAY_DRIVER_PATH")
 if not WHISPLAY_PATH:
     # 尝试常见安装位置
     candidates = [
+        "/opt/src/Whisplay/Driver",  # Day 0.2 实际安装位置
         os.path.expanduser("~/Whisplay/Driver"),
         "/home/pi/Whisplay/Driver",
+        "/home/mars/Whisplay/Driver",
         "/opt/Whisplay/Driver",
     ]
     for path in candidates:
@@ -1617,22 +1619,18 @@ def test_audio():
     print("=== 测试音频 ===")
     wav_path = "/tmp/test_audio.wav"
     
-    # 探测 WM8960 声卡号
-    import re
-    result = subprocess.run(["aplay", "-l"], capture_output=True, text=True)
-    match = re.search(r"card (\d+):.*wm8960", result.stdout, re.IGNORECASE)
-    card_num = match.group(1) if match else "0"
-    audio_device = f"plughw:{card_num},0"
+    # 使用声卡名称（比编号更稳定，参考 Day 0.2 配置）
+    audio_device = "plughw:wm8960"
     print(f"  使用音频设备: {audio_device}")
     
     print("  录音 3 秒...")
     subprocess.run([
         "arecord", "-D", audio_device, "-f", "S16_LE", 
         "-r", "16000", "-c", "1", "-d", "3", wav_path
-    ], check=True)
+    ], check=True, timeout=10)
     
     print("  播放录音...")
-    subprocess.run(["aplay", "-D", audio_device, wav_path], check=True)
+    subprocess.run(["aplay", "-D", audio_device, wav_path], check=True, timeout=10)
     
     Path(wav_path).unlink()
     print("  ✅ 音频测试通过")

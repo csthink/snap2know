@@ -152,4 +152,4 @@ python imx500_segmentation_demo.py --model /usr/share/imx500-models/imx500_netwo
 
 ## 下一步
 
-✅ 摄像头驱动安装完成，继续执行 **Day 0.4 最小硬件验收（hardware_test.py）**
+✅ 摄像头驱动安装完成，继续执行 [Day 0.4：最小硬件验收](./Day-0.4-最小硬件验收.md)

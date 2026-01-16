@@ -77,7 +77,7 @@
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.3 五个内部模块职责
+### 2.3 内部模块职责
 
 #### 1. UI Renderer（LCD 渲染）
 - **输入**：UIState 数据结构
@@ -805,16 +805,16 @@ else:
 }
 ```
 
-**error_code 枚举**
-| 值 | 说明 |
-|------|------|
-| `NET` | 网络连接失败 |
-| `MIC` | 麦克风错误 |
-| `CAM` | 摄像头错误 |
-| `API_STT` | STT API 调用失败 |
-| `API_CLAUDE` | Claude API 调用失败 |
-| `API_TTS` | TTS API 调用失败 |
-| `QDRANT` | 向量库错误 |
+**统一错误分类（UI 映射表）**
+
+| 错误码 (Enum) | 触发场景 | LCD line1 | LCD line2 示例 | 交互建议 |
+|---|---|---|---|---|
+| **NET** | 后端不可达 / WS 断线 / API 超时 | 网络错误 | 检查连接/MBP | 短按重试 |
+| **STT** | 录音过短 / 静音 / 识别空 | 无法识别 | 请大声一点 | 长按重录 |
+| **OCR** | 拍照失败 / 入库超时 / 识别失败 | 识别失败 | 请靠近重拍 | 短按重拍 |
+| **AUDIO** | 麦克风/扬声器故障 / 驱动丢失 | 设备故障 | 检查声卡 | 长按取消 |
+
+> **LED 行为**：所有错误状态下均为 🔴 红色常亮。
 
 ---
 
@@ -877,10 +877,7 @@ else:
 
 **TTS 模式配置**
 
-| 配置项 | 值 | 说明 |
-|--------|------|------|
-| `TTS_MODE` | `auto` | **默认**，优先 edge-tts，失败降级 espeak-ng |
-| `TTS_MODE` | `local` | 强制 espeak-ng（调试用） |
+> 模式配置详见下方《TTS 模式配置（以本表为准）》。
 
 > MVP 阶段默认使用 **edge-tts**（Pi 端，自然语音、免费），失败自动降级到 espeak-ng。在需要最高音质的演示场景可切换到云端 OpenAI TTS。
 
@@ -931,7 +928,9 @@ curl -X POST -H "Content-Type: application/json" \
   "http://mbp-ip:8000/tts" --output response.wav
 ```
 
-**本地 TTS（主路径）**
+**本地 TTS（降级/离线路径）**
+
+> Auto 默认优先 edge-tts；以下示例用于降级/离线模式验证音频链路。
 
 Pi 端直接使用 espeak-ng 合成（启动时已探测 AUDIO_DEVICE）：
 ```bash
@@ -953,6 +952,11 @@ Device Agent 需要知道 MBP 后端地址，支持以下方式：
 | 配置文件 | `config.toml` 中 `[backend] host = "..."` | 生产 |
 | mDNS | `snap2know-mbp.local:8000` | 自动发现 |
 
+> **说明**：
+> - mDNS 需 Pi 启用 `avahi-daemon` 服务
+> - 若 mDNS 不可用，则回退到 `config.toml` 或默认 IP
+> - **优先级**：`MBP_HOST` (env) > `config.toml` > mDNS > 默认 (localhost)
+
 **断线重连策略**
 
 | 阶段 | 行为 |
@@ -961,21 +965,26 @@ Device Agent 需要知道 MBP 后端地址，支持以下方式：
 | 重试失败 | 进入 Error 状态，显示 NET 错误码 |
 | 用户操作 | 短按重试，长按取消 |
 
-**TTS 模式配置**
+**TTS 模式配置（以本表为准）**
 
 | 配置项 | 值 | 说明 |
 |--------|------|------|
-| `TTS_MODE` | `local` | **默认**，使用本地 espeak-ng |
-| `TTS_MODE` | `cloud` | 使用 MBP `/tts`（OpenAI TTS） |
+| `TTS_MODE` | `auto` | **默认**，优先 edge-tts，失败降级 espeak-ng |
+| `TTS_MODE` | `edge` | 强制 edge-tts，失败报错（调试/对比用） |
+| `TTS_MODE` | `local` | 强制本地 espeak-ng（调试/离线用） |
+| `TTS_MODE` | `cloud` | 使用 MBP `/tts`（OpenAI TTS，高音质演示用） |
 
 ```bash
 # 环境变量方式
-export TTS_MODE=local  # 默认，低延迟
-export TTS_MODE=cloud  # 演示场景，高音质
-
+export TTS_MODE=auto   # 默认：edge-tts 优先，失败降级 espeak-ng
+export TTS_MODE=cloud  # 演示场景：OpenAI TTS
+export TTS_MODE=local  # 调试/离线：强制 espeak-ng
+# export TTS_MODE=edge # 调试：强制 edge-tts（失败报错）
+```
+```toml
 # 或 config.toml
 [tts]
-mode = "local"  # local | cloud
+mode = "auto"  # auto | edge | local | cloud
 ```
 
 **降级策略**
@@ -1023,7 +1032,20 @@ mode = "local"  # local | cloud
 - 操作步骤（编号）
 - 前置条件/注意事项/风险提示 至少一项
 
-### 8.5 Pi 端 TTS 分段与播放（Device Agent）
+### 8.5 本地缓存策略（文件与存储）
+
+- **统一路径**: `/tmp/snap2know_cache/`
+  - 使用 RAM disk (tmpfs) 避免 SD 卡损耗
+  - 重启自动清理（依赖 OS 机制）
+- **文件管理**:
+  - 结构：`/tmp/snap2know_cache/{session_id}/{type}_{timestamp}.{ext}`
+  - 类型：`images/`, `audio/`, `tts/`
+- **清理策略**:
+  - **启动时**: 强制清空 `/tmp/snap2know_cache/`
+  - **新会话/结束会话**: 递归删除旧 `session_id` 目录
+  - **运行时保护**: 单个会话内每类文件保留最近 **20** 个（FIFO），防止长会话爆内存
+
+### 8.6 Pi 端 TTS 分段与播放（Device Agent）
 
 **目标：** 流式体验 + 连贯语音（支持中断、可降级）
 
@@ -1150,7 +1172,7 @@ def tts_worker():
         os.close(fd)
 
         try:
-            # 本地 TTS（主路径）
+            # v1（oneshot，调试用）：espeak-ng → wav → aplay
             # 若你需要“可终止合成”，可用 Popen 保存 current_tts_proc 并在 stop/cancel 时 kill
             current_tts_proc = subprocess.Popen(["espeak-ng", "-v", "zh", "-w", wav_path, segment])
             current_tts_proc.wait()
@@ -1207,6 +1229,24 @@ def tts_worker():
 | **v2（默认）** | `aplay` 常驻 + pipe 喂 raw PCM | **生产默认**，Pop/Click 最小化 |
 | v1 | 每段启动 `aplay` 播放后退出 | 仅用于快速验证/调试，**不作为默认** |
 
+**配置项（推荐）**
+
+- `PLAYBACK_MODE` = `persistent` (默认) | `oneshot` (调试)
+
+```bash
+# 环境变量
+export PLAYBACK_MODE=persistent  # 生产默认：常驻流 (v2)
+export PLAYBACK_MODE=oneshot     # 调试：单次播放 (v1)
+```
+
+```toml
+# config.toml
+[audio]
+playback_mode = "persistent"  # persistent | oneshot
+```
+
+> **验收要求**：生产环境必须配置为 `persistent` (v2)。
+
 **语义约束（v2 路径）**
 | 函数 | 行为 | 是否关闭 WS |
 |------|------|-------------|
@@ -1219,6 +1259,8 @@ def tts_worker():
 - `SAMPLE_RATE = 16000`
 - `CHANNELS = 1`
 - `FORMAT = S16_LE`
+
+> **Note**: 所有 TTS 输出（edge-tts/OpenAI/espeak）在写入常驻流前**必须**统一重采样到上述 FORMAT (16k/mono/s16le)，以避免 aplay 异常。
 
 ```python
 import subprocess, queue, tempfile, os

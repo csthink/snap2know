@@ -4,6 +4,7 @@
 ## 项目简介
 
 **Snap2Know** 是一个基于树莓派的智能问答设备，通过拍照识别说明书内容，语音提问获取操作指导。
+**Snap2Know** 不仅仅是一个硬件 Demo，它是一个典型的端到端 AIoT（AI + IoT）全栈项目。
 
 ### 演示场景
 拍摄路由器说明书 → 语音提问"如何登录管理后台" → 获得步骤化回答 + 语音播报
@@ -167,7 +168,7 @@ python main.py
 ```
 Snap2Know/
 ├── README.md              # 本文件
-├── design.md              # 详细设计文档
+├── Design.md              # 详细设计文档
 ├── mbp/                   # MBP 后端
 │   ├── docker-compose.yml # Qdrant 部署
 │   └── snap2know/         # FastAPI 源码
@@ -227,4 +228,4 @@ Snap2Know/
 
 - [Whisplay HAT 官方文档](https://docs.pisugar.com/docs/product-wiki/whisplay/overview)
 - [Whisplay Driver GitHub](https://github.com/PiSugar/Whisplay)
-- [详细设计文档](./design.md)
+- [详细设计文档](./Design.md)

@@ -1,53 +1,151 @@
-# Raspberry Pi OS 安装
+# Raspberry Pi OS 安装指南
 
-1. 下载 Raspberry Pi Imager
-[Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+> Day 0.1 前置任务：为 Snap2Know 设备烧录操作系统
 
-2. 烧录 Raspberry Pi OS
+## 前置要求
 
-- 选择设备
+- **TF 卡**：64GB（推荐 Class 10 / A2）
+- **读卡器**：USB 3.0（加快写入速度）
+- **软件**：[Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+
+---
+
+## 步骤 1：下载并安装 Raspberry Pi Imager
+
+前往官网下载适用于您操作系统的版本：
+- [Raspberry Pi Imager 下载页面](https://www.raspberrypi.com/software/)
+
+---
+
+## 步骤 2：烧录配置
+
+### 2.1 选择设备
+选择 **Raspberry Pi 5**
+
 ![选择设备](./images/raspberry_os_install_1.png)
 
-- 选择操作系统
+### 2.2 选择操作系统
+选择 **Raspberry Pi OS (64-bit)** — 必须是 64 位版本（Bookworm）
+
+> ⚠️ **重要**：不要选择 Lite 版本，Snap2Know 需要桌面环境进行初始配置
+
 ![选择操作系统](./images/raspberry_os_install_2.png)
 
-- 选择SD卡
+### 2.3 选择存储设备
+选择插入的 TF 卡
+
 ![选择SD卡](./images/raspberry_os_install_3.png)
 
-- 设置 hostname
+---
+
+## 步骤 3：高级设置（关键）
+
+点击 **齿轮图标** 或 **CTRL+SHIFT+X** 进入高级设置：
+
+### 3.1 设置 Hostname
+建议设置为：`raspberrypi`（或自定义，如 `snap2know`）
+
 ![设置 hostname](./images/raspberry_os_install_4.png)
 
-- 设置时区和键盘布局
+### 3.2 设置时区和键盘布局
+- **时区**：Asia/Shanghai
+- **键盘**：us（或您的本地布局）
+
 ![设置时区和键盘布局](./images/raspberry_os_install_5.png)
 
-- 创建用户
+### 3.3 创建用户
+- **用户名**：`mars`（或您的自定义用户名）
+- **密码**：设置一个安全的密码
+
+> 📝 此用户名将用于后续 SSH 连接：`ssh mars@raspberrypi`
+
 ![创建用户](./images/raspberry_os_install_6.png)
 
-- 设置WiFi网络
+### 3.4 配置 WiFi（推荐）
+- **SSID**：您的 WiFi 名称
+- **密码**：WiFi 密码
+- **国家**：CN
+
+> 💡 提前配置 WiFi 可避免首次启动时连接显示器
+
 ![设置WiFi网络](./images/raspberry_os_install_7.png)
 
-- 开启SSH
+### 3.5 启用 SSH（必须）
+勾选 **Enable SSH** 并选择 **Use password authentication**
+
+> ⚠️ **必须启用**：Snap2Know 开发完全依赖 SSH 远程操作
+
 ![开启SSH](./images/raspberry_os_install_8.png)
 
-- 开启 Pi Connect[可选]
+### 3.6 启用 Pi Connect（可选）
+如需远程访问，可启用 Raspberry Pi Connect
+
 ![开启 Pi Connect](./images/raspberry_os_install_9.png)
 
-- 确认设置，准备烧录
+---
+
+## 步骤 4：开始烧录
+
+### 4.1 确认设置
+检查所有配置无误后，点击 **Write**
+
 ![确认设置，准备烧录](./images/raspberry_os_install_10.png)
 
-- 提示擦除SD卡
+### 4.2 确认擦除
+系统提示将擦除 TF 卡所有数据，点击 **Yes**
+
 ![提示擦除SD卡](./images/raspberry_os_install_11.png)
 
+### 4.3 写入镜像
+等待镜像写入...（约 5-10 分钟）
 
-- 写入镜像
 ![写入镜像](./images/raspberry_os_install_12.png)
 
-- 镜像写入中
 ![镜像写入中](./images/raspberry_os_install_13.png)
 
-- 校验镜像
+### 4.4 校验镜像
+自动校验写入数据的完整性
+
 ![校验镜像](./images/raspberry_os_install_14.png)
 
-- 镜像写入完成
+### 4.5 完成
+看到此界面表示烧录成功！
+
 ![镜像写入完成](./images/raspberry_os_install_15.png)
 
+---
+
+## 步骤 5：首次启动验证
+
+1. **安全弹出 TF 卡**，插入 Raspberry Pi 5
+2. **接通电源**，等待 1-2 分钟
+3. **SSH 连接测试**：
+
+```bash
+ssh mars@raspberrypi
+# 或使用 IP 地址
+ssh mars@192.168.x.x
+```
+
+4. **验证系统版本**：
+
+```bash
+uname -a          # 确认 aarch64
+cat /etc/os-release  # 确认 Bookworm
+```
+
+---
+
+## 常见问题
+
+| 问题 | 解决方案 |
+|------|----------|
+| SSH 连接被拒绝 | 检查 Pi 是否已启动完成（等待 2 分钟）|
+| 找不到 `raspberrypi` 主机 | 使用 IP 地址连接，或检查路由器 DHCP 列表 |
+| WiFi 未连接 | 首次启动需连接显示器和键盘手动配置 |
+
+---
+
+## 下一步
+
+✅ OS 安装完成，继续执行 [Day 0.2 Whisplay 驱动安装](../Design.md#day-02-驱动安装)

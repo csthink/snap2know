@@ -127,6 +127,7 @@
 ssh mars@192.168.1.55
 
 # 验证系统版本
+uname -a           # 确认 aarch64
 cat /etc/os-release  # 确认 trixie
 ```
 
@@ -135,7 +136,9 @@ cat /etc/os-release  # 确认 trixie
 ![SSH hostname 登录 Pi](./images/raspberry_os_install_18.png)
 
 
-- 安装音频工具与转换依赖（v2 常驻播放流需要）
+### 可选：提前安装音频依赖
+
+> 💡 这些依赖将在 Day 0.2 正式安装，但可以提前完成
 
 ```bash
 sudo apt-get update
@@ -143,6 +146,29 @@ sudo apt-get install -y alsa-utils ffmpeg
 ```
 
 ![安装音频工具与转换依赖](./images/raspberry_os_install_19.png)
+
+
+## 设置 root 账号
+
+```bash
+sudo passwd root
+```
+
+![设置 root 账号](./images/raspberry_os_install_20.png)
+
+- 创建软件安装相关目录
+
+```shell
+sudo mkdir -p /opt/{app,src,release,script}
+```
+
+```shell
+sudo apt-get install vim
+```
+
+- 查看磁盘空间及内存
+
+![查看磁盘空间及内存](./images/raspberry_os_install_21.png)
 
 ---
 
@@ -156,6 +182,15 @@ sudo apt-get install -y alsa-utils ffmpeg
 
 ---
 
+## 验收清单
+
+- [ ] TF 卡烧录成功，无校验错误
+- [ ] Pi 上电后 2 分钟内可通过 SSH 连接
+- [ ] `uname -a` 输出包含 `aarch64`
+- [ ] `cat /etc/os-release` 显示 `trixie`
+
+---
+
 ## 下一步
 
-✅ OS 安装完成，继续执行 [Day 0.2 Whisplay 驱动安装](../Design.md#day-02-驱动安装)
+✅ OS 安装完成，继续执行 **Day 0.2 Whisplay 驱动安装**

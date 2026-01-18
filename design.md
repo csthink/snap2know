@@ -1448,23 +1448,17 @@ sudo python3 /opt/script/hardware_test.py
 
 #### Day 1：MBP 基础设施 + 会话 API
 
+> 详细步骤参见 [Day1-MBP基础设施-会话API.md](docs/Day1/Day1-MBP基础设施-会话API.md)
+
 **交付**
-- Qdrant Docker Compose
-- FastAPI 骨架：/health、POST/DELETE /session
+- Qdrant Docker Compose 部署
+- FastAPI 骨架：`/health`、会话 CRUD API
 
 **验收**
 ```bash
-# 1. Qdrant 启动
-docker-compose up -d
-curl http://localhost:6333/health  # 返回 ok
-
-# 2. FastAPI 启动
-uvicorn main:app --host 0.0.0.0 --port 8000
-curl http://localhost:8000/health  # 返回 ok
-
-# 3. 会话管理
-curl -X POST http://localhost:8000/session  # 返回 {session_id, created_at}
-curl -X DELETE http://localhost:8000/session/{id}  # 返回 {deleted: true}
+curl http://localhost:6333/healthz        # Qdrant 健康检查
+curl http://localhost:8000/health         # FastAPI 健康检查
+curl -X POST http://localhost:8000/session  # 创建会话
 ```
 
 ---

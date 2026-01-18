@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.env.local
+
+# Logs
+*.log
+
+# Qdrant data (keep structure, ignore contents)
+mbp/qdrant_storage/*.json
+!mbp/qdrant_storage/.gitkeep

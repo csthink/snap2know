@@ -209,4 +209,4 @@ Playing WAVE '/tmp/test_audio.wav' : Signed 16 bit Little Endian, Rate 16000 Hz,
 
 ## 下一步
 
-✅ Day 0 全部完成，可以开始 **Day 1：MBP 基础设施 + 会话 API** 开发
+✅ Day 0 全部完成，可以开始 [Day 1](../Day1/Day1-MBP基础设施-会话API.md) 开发

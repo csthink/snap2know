@@ -142,20 +142,25 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ### 2. Pi 端
 
+> 详细步骤参见 [docs/Day0](./docs/Day0/) 目录
+
 ```bash
-# 安装 Whisplay 驱动
-git clone https://github.com/PiSugar/Whisplay.git
-cd Whisplay/Driver && sudo bash install_wm8960_drive.sh
+# 1. 安装 Whisplay 驱动
+git clone https://github.com/PiSugar/Whisplay.git /opt/src/Whisplay
+cd /opt/src/Whisplay/Driver && sudo bash install_wm8960_drive.sh
 sudo reboot
 
-# 安装系统依赖（picamera2, espeak-ng, ffmpeg）
-sudo apt install -y python3-picamera2 espeak-ng ffmpeg
+# 2. 安装 IMX500 摄像头驱动（耗时 30-40 分钟）
+sudo apt install -y imx500-all
+sudo reboot
 
-# 安装 Python 依赖
+# 3. 安装系统依赖
+sudo apt install -y python3-picamera2 libcamera-apps espeak-ng ffmpeg alsa-utils
+
+# 4. 安装 Python 依赖
 pip install edge-tts httpx websockets pillow qdrant-client --break-system-packages
-# 注：Pi OS Bookworm 需要 --break-system-packages 或使用 venv
 
-# 启动 Device Agent
+# 5. 启动 Device Agent
 cd device_agent/
 export MBP_HOST=192.168.x.x:8000  # 替换为 MBP 的 IP
 python main.py
@@ -170,6 +175,8 @@ Snap2Know/
 ├── README.md              # 本文件
 ├── Design.md              # 详细设计文档
 ├── docs/                  # 学习与规划文档
+│   ├── Day0/              # Day 0 硬件准备文档
+│   ├── Day1/              # Day 1 MBP 基础设施文档
 │   ├── learning_path.md   # 学习路径与技术栈总结
 │   └── two_week_roadmap.md # 两周开发学习地图
 ├── mbp/                   # MBP 后端
@@ -200,12 +207,12 @@ Snap2Know/
 
 ### Day 0：硬件准备（前置工作）
 
-| 步骤 | 任务 | 验收 |
-|------|------|------|
-| 0.1 | Pi OS 安装（非 Lite 带桌面） | SSH 连接成功 |
-| 0.2 | Whisplay 驱动 | `run_test.sh` 通过 |
-| 0.3 | 摄像头驱动 | picamera2 拍照成功 |
-| 0.4 | 最小硬件验收 | `hardware_test.py` 全部通过 |
+| 步骤 | 任务 | 详细文档 |
+|------|------|----------|
+| 0.1 | Pi OS 安装 | [Day-0.1-Pi 操作系统安装.md](./docs/Day0/Day-0.1-Pi%20操作系统安装.md) |
+| 0.2 | Whisplay 驱动 | [Day-0.2-Whisplay驱动安装.md](./docs/Day0/Day-0.2-Whisplay驱动安装.md) |
+| 0.3 | 摄像头驱动 | [Day-0.3-摄像头驱动安装.md](./docs/Day0/Day-0.3-摄像头驱动安装.md) |
+| 0.4 | 最小硬件验收 | [Day-0.4-最小硬件验收.md](./docs/Day0/Day-0.4-最小硬件验收.md) |
 
 ### Week 1-2：开发计划
 

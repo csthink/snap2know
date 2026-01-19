@@ -181,4 +181,4 @@ curl -X POST -F "audio=@test.mp3" "http://localhost:8000/upload/audio?session_id
 
 ## 下一步
 
-✅ Day 2 完成，继续 **Day 3：OCR 入库（图片→切块→Qdrant）**
+✅ Day 2 完成，继续 [Day 3 OCR 入库（图片→切块→Qdrant）](../Day3/Day3-OCR%20入库.md)

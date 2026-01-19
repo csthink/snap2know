@@ -27,6 +27,21 @@ class Settings(BaseSettings):
     # TTS 配置
     tts_mode: str = "auto"  # auto, edge, local, cloud
     
+    # OCR 配置
+    ocr_primary_timeout_sec: int = 8    # Claude OCR 超时（秒）
+    ocr_fallback_timeout_sec: int = 10  # GPT-4o OCR 超时（秒）
+    
+    # 文本切块配置
+    chunk_size: int = 500      # 每块最大字符数
+    chunk_overlap: int = 50    # 块间重叠字符数
+    
+    # Embedding 配置
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    
+    # Qdrant Collection
+    qdrant_collection: str = "snap2know_chunks"
+    
     # 应用配置
     debug: bool = False
     

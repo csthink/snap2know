@@ -8,6 +8,7 @@ from config import settings
 from session import router as session_router
 from stt import router as stt_router
 from tts import router as tts_router
+from ocr import router as ocr_router
 
 app = FastAPI(
     title="Snap2Know API",
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(session_router, prefix="/session", tags=["Session"])
 app.include_router(stt_router, tags=["STT"])
 app.include_router(tts_router, tags=["TTS"])
+app.include_router(ocr_router, tags=["OCR"])
 
 
 @app.get("/health")

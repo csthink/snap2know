@@ -230,4 +230,4 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## 下一步
 
-✅ Day 1 完成，继续 **Day 2：STT + TTS API** 开发
+✅ Day 1 完成，继续 [Day 2：STT + TTS API](../Day2/Day2-STT-TTS.md) 开发

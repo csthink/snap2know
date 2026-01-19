@@ -1465,21 +1465,18 @@ curl -X POST http://localhost:8000/session  # 创建会话
 
 #### Day 2：STT + TTS API
 
+> 详细步骤参见 [Day2-STT-TTS.md](docs/Day2/Day2-STT-TTS.md)
+
 **交付**
-- POST /upload/audio → OpenAI STT → question_text
-- POST /tts → OpenAI TTS → 音频流返回
+- `POST /upload/audio` → OpenAI Whisper STT → 返回识别文本
+- `POST /tts` → edge-tts（默认）/ OpenAI TTS（cloud 模式）→ 音频流返回
+- `GET /tts/info` → TTS 配置信息
 
 **验收**
 ```bash
-# 1. STT
-curl -X POST -F "audio=@test.wav" "http://localhost:8000/upload/audio?session_id=xxx"
-# 返回 {question_text: "...", stt_ms: 1234}
-
-# 2. TTS
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"text": "你好，这是测试"}' \
-  "http://localhost:8000/tts" --output test_tts.mp3
-# 播放 test_tts.mp3 验证音质
+curl http://localhost:8000/tts/info                    # TTS 配置
+curl -X POST -d '{"text":"测试"}' http://localhost:8000/tts --output test.mp3  # TTS
+curl -X POST -F "audio=@test.mp3" "http://localhost:8000/upload/audio?session_id=xxx"  # STT
 ```
 
 ---

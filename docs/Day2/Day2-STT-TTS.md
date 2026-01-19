@@ -25,10 +25,38 @@ mbp/snap2know/
 ├── main.py          # 更新：注册 STT/TTS 路由
 ├── stt.py           # 新增：STT API（OpenAI Whisper）
 ├── tts.py           # 新增：TTS API（edge-tts + OpenAI TTS）
-├── config.py        # 配置管理
+├── config.py        # 更新：添加代理配置支持
 ├── session.py       # 会话管理
+├── .env.example     # 更新：代理配置示例
 └── requirements.txt # 依赖
 ```
+
+---
+
+## 配置说明
+
+### 环境变量 (.env)
+
+```bash
+# OpenAI API Key
+OPENAI_API_KEY=sk-xxx
+
+# 自定义 API 地址（注意：需要包含 /v1 后缀）
+OPENAI_BASE_URL=https://api.gptsapi.net/v1
+
+# Anthropic API Key（Day 3 使用）
+ANTHROPIC_API_KEY=sk-ant-xxx
+ANTHROPIC_BASE_URL=https://api.gptsapi.net
+
+# 代理配置（可选）
+# HTTP_PROXY=http://127.0.0.1:7890
+# HTTPS_PROXY=http://127.0.0.1:7890
+
+# TTS 模式
+TTS_MODE=auto
+```
+
+> ⚠️ **重要**：使用 API 代理服务时，`OPENAI_BASE_URL` 必须包含 `/v1` 后缀
 
 ---
 
@@ -52,6 +80,11 @@ mbp/snap2know/
   "session_id": "xxx"
 }
 ```
+
+**特性**：
+- 支持代理配置
+- 支持自定义 API 地址
+- 默认中文识别
 
 ### tts.py - 文字转语音
 
@@ -86,34 +119,30 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ```bash
 # 获取 TTS 配置信息
 curl http://localhost:8000/tts/info
-# {"available_modes":["auto","edge","cloud"],"current_mode":"auto","edge_voices":[...],"openai_voices":[...]}
+# {"available_modes":["auto","edge","cloud"],"current_mode":"auto",...}
 
-# 生成语音
+# edge-tts 模式（默认）
 curl -X POST -H "Content-Type: application/json" \
   -d '{"text": "你好，这是测试"}' \
-  "http://localhost:8000/tts" --output test_tts.mp3
+  "http://localhost:8000/tts" --output test_edge.mp3
+# 生成 ~13KB MP3 文件
 
-# 播放验证
-afplay test_tts.mp3  # macOS
-# 或 aplay test_tts.mp3  # Linux
+# OpenAI TTS 模式
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"text": "你好，这是一个测试", "mode": "cloud"}' \
+  "http://localhost:8000/tts" --output test_cloud.mp3
+# 生成 ~38KB MP3 文件
 ```
-
-**预期结果**：生成可播放的 MP3 文件（约 10-20KB）
 
 ### 3. STT 测试
 
-> ⚠️ 需要先配置 `OPENAI_API_KEY`
-
 ```bash
-# 配置环境变量
-cd mbp/snap2know
-cp .env.example .env
-# 编辑 .env，填入 OPENAI_API_KEY
+# 使用 TTS 生成的音频测试 STT
+curl -X POST -F "audio=@test_cloud.mp3" \
+  "http://localhost:8000/upload/audio?session_id=test123"
 
-# 测试 STT
-curl -X POST -F "audio=@test.wav" \
-  "http://localhost:8000/upload/audio?session_id=test"
-# {"question_text": "...", "stt_ms": 1234, "session_id": "test"}
+# 预期响应：
+# {"question_text":"錄音測試 12345","stt_ms":3049,"session_id":"test123"}
 ```
 
 ---
@@ -123,9 +152,30 @@ curl -X POST -F "audio=@test.wav" \
 - [x] `stt.py` 模块创建
 - [x] `tts.py` 模块创建
 - [x] `main.py` 注册 STT/TTS 路由
-- [x] `GET /tts/info` 返回配置信息
-- [x] `POST /tts` 生成语音文件成功
-- [ ] `POST /upload/audio` STT 识别成功（需配置 API Key）
+- [x] 代理配置支持
+- [x] `GET /tts/info` 返回配置信息 ✅
+- [x] `POST /tts` (edge-tts) 生成语音 ✅
+- [x] `POST /tts` (cloud/OpenAI) 生成语音 ✅ (38KB)
+- [x] `POST /upload/audio` STT 识别成功 ✅ (3049ms)
+
+---
+
+## 测试截图
+
+### TTS 验证
+
+```
+curl -X POST -d '{"text":"你好，这是一个测试","mode":"cloud"}' http://localhost:8000/tts
+HTTP Status: 200
+/tmp/test_tts_cloud.mp3: MPEG ADTS, layer III, v2, 160 kbps, 24 kHz, Monaural (38KB)
+```
+
+### STT 验证
+
+```
+curl -X POST -F "audio=@test.mp3" "http://localhost:8000/upload/audio?session_id=test"
+{"question_text":"錄音測試 12345","stt_ms":3049,"session_id":"test123"}
+```
 
 ---
 

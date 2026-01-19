@@ -138,13 +138,14 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 # INFO:     Waiting for application startup.
 # INFO:     Application startup complete.
 # INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
 
 
 ![FastAPI](./images/fastapi_1.png)
 
+- http://localhost:8000/docs
 ![FastAPI swagger](./images/fastapi_2.png)
 
+- http://localhost:8000/redoc
 ![FastAPI redoc](./images/fastapi_3.png)
 
 

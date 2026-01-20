@@ -135,6 +135,41 @@ cat /etc/os-release  # 确认 trixie
 
 ![SSH hostname 登录 Pi](./images/raspberry_os_install_18.png)
 
+### SSH 免密登录配置
+方法一：使用 ssh-copy-id（推荐）
+在 MBP 上执行：
+
+```shell
+ssh-copy-id -i ~/.ssh/id_ed25519.pub mars@raspberrypi
+```
+
+输入密码后会自动完成配置。
+
+方法二：手动复制
+
+```shell
+# 在 MBP 上查看公钥
+cat ~/.ssh/id_ed25519.pub
+
+# SSH 到 Pi
+ssh mars@raspberrypi
+
+# 在 Pi 上执行（如果 .ssh 目录不存在）
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+
+# 将公钥追加到 authorized_keys
+echo "你的公钥内容" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+验证
+```shell
+# 从 MBP 测试免密登录
+ssh mars@raspberrypi
+
+# 应直接登录，无需输入密码
+```
 
 ### 可选：提前安装音频依赖
 

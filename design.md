@@ -1512,26 +1512,19 @@ curl "http://localhost:6333/collections/snap2know_chunks/points/count?filter=...
 
 #### Day 4：WS 流式问答
 
+> 详细步骤参见 [Day4-WS流式问答.md](docs/Day4/Day4-WS流式问答.md)
+
 **交付**
-- WS /ws/chat：检索 → Claude Sonnet → token 流
-- 返回 meta/token/done 三种消息
+- `WS /ws/chat` → RAG 检索 → Claude Sonnet → 流式 token 返回
+- 消息类型：`meta` / `token` / `done` / `error`
 
 **验收**
-```python
-# 使用 Python websockets 测试
-import websockets, asyncio, json
-
-async def test():
-    async with websockets.connect("ws://localhost:8000/ws/chat?session_id=xxx") as ws:
-        await ws.send(json.dumps({"question_text": "如何登录管理后台", "top_k": 6}))
-        async for msg in ws:
-            print(json.loads(msg))  # 验证 meta → token... → done
-
-asyncio.run(test())
+```bash
+python test_ws_chat.py
+# [META] 检索到 N 条文档, 上下文 tokens
+# [TOKEN] 流式输出回答...
+# [DONE] 耗时 xxxms, tokens=xxx
 ```
-- [ ] 收到 `{type: "meta", trace_id, retrieved}` 
-- [ ] 收到多条 `{type: "token", text}`
-- [ ] 最后收到 `{type: "done", total_ms}`
 
 ---
 

@@ -166,4 +166,4 @@ client.query_points(collection_name, query=...)
 
 ## 下一步
 
-✅ Day 4 完成，继续 **Day 5：Pi Device Agent 骨架**
+✅ Day 4 完成，继续 [Day 5：Pi Device Agent 骨架 + 硬件封装](../Day5/Day5-Pi-Device-Agent骨架-硬件封装.md)

@@ -60,6 +60,7 @@ class LCDRenderer:
     def _load_fonts(self):
         """加载字体"""
         font_paths = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",  # Pi 5 安装的 Noto CJK
             "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
             "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
             "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf",
@@ -288,8 +289,8 @@ class LCDRenderer:
         if self._lcd:
             try:
                 # 调用 LCD 驱动的显示方法
-                if hasattr(self._lcd, '_display_image'):
-                    self._lcd._display_image(image)
+                if hasattr(self._lcd, 'draw_image'):
+                    self._lcd.draw_image(image)
                 elif hasattr(self._lcd, 'show_image'):
                     # 保存临时文件再显示
                     temp_path = "/tmp/lcd_frame.png"
@@ -300,3 +301,4 @@ class LCDRenderer:
         else:
             # 保存预览
             image.save("/tmp/lcd_preview.png")
+            print("[LCD] Preview saved to /tmp/lcd_preview.png")

@@ -24,16 +24,27 @@ def create_hardware():
         
         if is_pi:
             print("[INFO] Running on Raspberry Pi - using real hardware")
+            
+            # LCD 先初始化（会创建 WhisplayBoard）
+            lcd = LCD()
+            
+            # Button 使用 LCD 的 WhisplayBoard 实例
+            button = Button(pin=config.button_pin)
+            board = lcd.get_board()
+            if board:
+                button.set_board(board)
+                print("[INFO] Button using shared WhisplayBoard")
+            
             return {
                 "camera": Camera(),
                 "audio": Audio(device=config.audio_device),
-                "button": Button(pin=config.button_pin),
+                "button": button,
                 "led": LED(
                     red_pin=config.led_red_pin,
                     green_pin=config.led_green_pin,
                     blue_pin=config.led_blue_pin
                 ),
-                "lcd": LCD()
+                "lcd": lcd
             }
         else:
             raise ImportError("Not on Pi")
@@ -279,6 +290,7 @@ def setup_callbacks(hw: dict, services: dict):
                     def on_done(data):
                         print(f"[QA] Done: {data}")
                         asyncio.run_coroutine_threadsafe(tts_player.flush(), loop)
+                        tts_player.mark_done()  # 标记没有更多内容
                     
                     await mbp_client.ask_question(
                         text,
@@ -333,21 +345,10 @@ def setup_callbacks(hw: dict, services: dict):
 def setup_button_gpio(hw: dict, button_handler):
     """配置按键 GPIO 回调"""
     try:
+        # 使用 WhisplayBoard 的按钮回调
         hw["button"].on_press(button_handler.on_press)
-        
-        def poll_release():
-            was_pressed = False
-            while True:
-                try:
-                    is_pressed = hw["button"].is_pressed()
-                    if was_pressed and not is_pressed:
-                        button_handler.on_release()
-                    was_pressed = is_pressed
-                except:
-                    pass
-                time.sleep(0.02)
-        
-        threading.Thread(target=poll_release, daemon=True).start()
+        hw["button"].on_release(button_handler.on_release)
+        print("[BUTTON] GPIO callbacks registered")
         
     except Exception as e:
         print(f"[BUTTON] GPIO setup failed: {e}")
@@ -456,7 +457,7 @@ def test_hardware(hw: dict):
             if name == "led":
                 hw["led"].set_color("blue")
             elif name == "lcd":
-                hw["lcd"].show_text("Test")
+                hw["lcd"].show_status("idle", "测试中...")
             elif name == "button":
                 hw["button"].is_pressed()
             print("OK")

@@ -98,10 +98,12 @@ ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd de
 
 ## 已知问题
 
-⚠️ **Pi 5 LCD 驱动问题**：GPIO 被内核预占用，LCD 暂时保存预览到 `/tmp/lcd_preview.png`。将在后续版本修复。
+~~⚠️ **Pi 5 LCD 驱动问题**：GPIO 被内核预占用，LCD 暂时保存预览到 `/tmp/lcd_preview.png`。~~
+
+✅ **已在 Day 8 修复**：使用官方 WhisplayBoard 驱动，LCD 和按钮共享 GPIO 句柄。
 
 ---
 
 ## 下一步
 
-✅ Day 7 完成，继续 [Day 8：LCD 状态渲染完善](../Day8/Day8-LCD状态渲染完善.md)
+✅ Day 7 完成，继续 [Day 8：LCD 状态渲染完善](../Day8/Day8-LCD%20状态渲染完善.md)

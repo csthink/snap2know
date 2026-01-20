@@ -112,10 +112,15 @@ class Audio:
         # 检测格式
         if data[:4] == b"RIFF":
             suffix = ".wav"
-        elif data[:3] == b"ID3" or data[:2] == b"\xff\xfb":
+        elif data[:3] == b"ID3":
+            # MP3 with ID3 tag
+            suffix = ".mp3"
+        elif len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0:
+            # MP3 sync word (0xFF followed by 0xE0-0xFF)
             suffix = ".mp3"
         else:
             suffix = ".wav"
+            print(f"[Audio] Unknown format, first bytes: {data[:4].hex()}")
         
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(data)

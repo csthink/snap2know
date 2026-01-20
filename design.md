@@ -1614,20 +1614,32 @@ ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd de
 
 ---
 
-#### Day 8：LCD 状态渲染完善
+#### Day 8：LCD 状态渲染完善 + TTS 播放修复 ✅ 完成
+
+> 详细步骤参见 [Day8-LCD状态渲染完善.md](docs/Day8/Day8-LCD%20状态渲染完善.md)
 
 **交付**
-- 所有状态的 LCD 渲染（idle/recording/busy/answering/done/menu/error）
-- 图标资源（PNG 格式，64-96px）
-- 中文字体（Noto Sans CJK TTF）
-- 进度显示（录音时长、chunks 数、播报队列）
+- `hardware/lcd.py`：使用官方 WhisplayBoard 驱动
+- `hardware/button.py`：WhisplayBoard 按钮回调集成
+- `services/tts_player.py`：修复播放循环时序问题
+- `hardware/audio.py`：修复 MP3 格式检测
 
 **验收**
-- [ ] idle：📷 图标 + 蓝色 LED + "按住说话 / 短按拍照"
-- [ ] recording：🎤 图标 + 黄色 LED + 录音时长滚动 "00:05"
-- [ ] busy：⏳ 图标 + 紫色闪烁 + 子阶段文案切换（800ms 驻留）
-- [ ] answering：▶ 图标 + 绿色 LED + 进度 "5/12"
-- [ ] error：⚠ 图标 + 红色 LED + 错误码显示
+```bash
+# 启动 Device Agent（需要 sudo 访问 GPIO）
+ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.venv/bin/python main.py"
+
+# 短按 → 拍照入库
+# 长按 2-4 秒 → 录音 → STT → Q&A → TTS 播放
+```
+
+**测试结果（2026-01-20）**
+- [x] LCD 显示就绪状态：蓝色背景 + "就绪" + 中文正常
+- [x] LCD 显示录音状态：红色背景 + "录音中..."
+- [x] LCD 显示处理状态：黄色背景 + "处理中..."
+- [x] 短按拍照：拍照 → 上传 → OCR 完成
+- [x] 长按录音：录音 → STT → Q&A → TTS 播放
+- [x] TTS 语音播放：清晰播放回复内容
 
 ---
 

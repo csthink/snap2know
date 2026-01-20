@@ -41,6 +41,8 @@ class TTSPlayer:
         self._is_playing = False
         self._is_muted = False
         self._should_stop = False
+        self._expecting_more = True  # 是否期待更多内容
+        self._pending_requests = 0   # 待处理的 TTS 请求数
         self._play_task: Optional[asyncio.Task] = None
         
         # 音频模块（延迟导入）
@@ -123,16 +125,23 @@ class TTSPlayer:
         if not text or self._should_stop:
             return
         
-        print(f"[TTS] Requesting: {text[:20]}...")
+        self._pending_requests += 1
+        print(f"[TTS] Requesting: {text[:20]}... (pending: {self._pending_requests})")
         
         try:
             if self.mbp_client:
                 audio_data = await self.mbp_client.text_to_speech(text)
+                print(f"[TTS] Got audio: {len(audio_data)} bytes for '{text[:15]}...'")
                 await self._queue.put(AudioChunk(text=text, audio_data=audio_data))
+                print(f"[TTS] Queued, queue size now: {self._queue.qsize()}")
             else:
                 print(f"[TTS] No MBP client, skipping: {text}")
         except Exception as e:
-            print(f"[TTS] Error: {e}")
+            print(f"[TTS] Error getting audio: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._pending_requests -= 1
     
     async def flush(self):
         """刷新缓冲区，发送剩余文本"""
@@ -146,25 +155,37 @@ class TTSPlayer:
             return
         
         self._should_stop = False
+        self._expecting_more = True  # 开始时期待更多内容
         self._play_task = asyncio.create_task(self._play_loop())
+    
+    def mark_done(self):
+        """标记没有更多内容了"""
+        print("[TTS] Marked as done - no more content expected")
+        self._expecting_more = False
     
     async def _play_loop(self):
         """播放循环"""
+        print("[TTS] Play loop started")
         self._is_playing = True
         
         while not self._should_stop:
             try:
-                # 等待音频块（超时 1 秒）
+                # 等待音频块（超时 2 秒）
+                print(f"[TTS] Waiting for audio chunk, queue size: {self._queue.qsize()}")
                 try:
-                    chunk = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                    chunk = await asyncio.wait_for(self._queue.get(), timeout=2.0)
                 except asyncio.TimeoutError:
                     # 检查是否还有内容
-                    if self._queue.empty() and not self._buffer:
+                    print(f"[TTS] Timeout, queue: {self._queue.qsize()}, pending: {self._pending_requests}, expecting: {self._expecting_more}")
+                    # 只有在不期待更多内容、队列为空、无待处理请求时才退出
+                    if self._queue.empty() and self._pending_requests == 0 and not self._expecting_more:
                         break
                     continue
                 
                 if self._should_stop:
                     break
+                
+                print(f"[TTS] Got chunk: {chunk.text[:20]}...")
                 
                 # 播放音频
                 if not self._is_muted:
@@ -174,11 +195,15 @@ class TTSPlayer:
                 
             except Exception as e:
                 print(f"[TTS] Play error: {e}")
+                import traceback
+                traceback.print_exc()
         
+        print("[TTS] Play loop ended")
         self._is_playing = False
     
     async def _play_audio(self, audio_data: bytes):
         """播放音频数据"""
+        print(f"[TTS] Playing audio: {len(audio_data)} bytes")
         audio = self._get_audio()
         
         # 保存到临时文件
@@ -188,10 +213,12 @@ class TTSPlayer:
         
         try:
             # 使用 mpg123 播放 MP3
+            print(f"[TTS] Calling play_bytes with device: {self.audio_device}")
             await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: audio.play_bytes(audio_data)
             )
+            print("[TTS] Audio playback complete")
         except Exception as e:
             print(f"[TTS] Play audio error: {e}")
         finally:

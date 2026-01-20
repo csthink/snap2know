@@ -126,13 +126,13 @@ class MBPClient:
             }
             
             response = await client.post(
-                f"{self.base_url}/stt",
+                f"{self.base_url}/upload/audio",
                 files=files,
                 params={"session_id": self.session_id}
             )
             response.raise_for_status()
             data = response.json()
-            return data.get("text", "")
+            return data.get("question_text", "")
         except Exception as e:
             print(f"[MBPClient] STT failed: {e}")
             raise

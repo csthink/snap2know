@@ -1530,32 +1530,38 @@ python test_ws_chat.py
 
 #### Day 5：Pi Device Agent 骨架 + 硬件封装
 
+> 详细步骤参见 [Day5-Pi-Device-Agent骨架-硬件封装.md](docs/Day5/Day5-Pi-Device-Agent骨架-硬件封装.md)
+
 **交付**
 - Device Agent Python 服务（运行于 Pi）
 - 硬件封装模块：
-  - picamera2 拍照
-  - WM8960 录音/播放（arecord/aplay）
-  - 按键 GPIO 监听
-  - LED RGB 控制
-  - LCD SPI 显示（Whisplay 驱动 + PIL/Pillow）
+  - `Camera` - picamera2 拍照
+  - `Audio` - WM8960 录音/播放
+  - `Button` - GPIO 按键监听（gpiod，Pi 5 兼容）
+  - `LED` - RGB LED 控制（gpiod）
+  - `LCD` - SPI 显示（PIL/Pillow）
 
 **验收**
 ```bash
-# 1. 在 Pi 上启动 Device Agent
-python device_agent.py
+# 同步代码到 Pi
+rsync -avz device_agent/ mars@raspberrypi:/opt/snap2know/device_agent/
 
-# 2. 测试硬件封装
-python -c "from hardware import Camera; Camera().capture('/tmp/test.jpg')"
-python -c "from hardware import LED; LED().set_color('blue')"
-python -c "from hardware import LCD; LCD().show_text('Hello')"
+# 远程测试
+ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd device_agent && python main.py"
 
-# 3. 验证 LCD 显示
-# LCD 应显示 "Hello" 文字
+# 预期输出：
+# [TEST] LED: OK ✅
+# [TEST] LCD: OK ✅
+# [TEST] Button: OK ✅
+# [TEST] Camera: OK ✅
+# [TEST] Audio: OK ✅
 ```
 
 ---
 
 #### Day 6：Device Agent 状态机 + LCD 渲染
+
+> 详细步骤参见 [Day6-Device-Agent-状态机-LCD渲染.md](docs/Day6/Day6-Device-Agent-状态机-LCD%20渲染.md)
 
 **交付**
 - 完整状态机实现（S0-S7 + Busy）

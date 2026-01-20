@@ -9,6 +9,7 @@ from session import router as session_router
 from stt import router as stt_router
 from tts import router as tts_router
 from ocr import router as ocr_router
+from ws_chat import router as ws_chat_router
 
 app = FastAPI(
     title="Snap2Know API",
@@ -30,6 +31,7 @@ app.include_router(session_router, prefix="/session", tags=["Session"])
 app.include_router(stt_router, tags=["STT"])
 app.include_router(tts_router, tags=["TTS"])
 app.include_router(ocr_router, tags=["OCR"])
+app.include_router(ws_chat_router, tags=["Chat"])
 
 
 @app.get("/health")

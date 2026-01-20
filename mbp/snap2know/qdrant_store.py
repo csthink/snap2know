@@ -139,23 +139,24 @@ def search_similar_chunks(
             ]
         )
     
-    results = client.search(
+    # 使用新版 API: query_points
+    results = client.query_points(
         collection_name=collection_name,
-        query_vector=query_embedding,
+        query=query_embedding,
         query_filter=query_filter,
         limit=limit
     )
     
     return [
         {
-            "text": hit.payload.get("text", ""),
+            "text": hit.payload.get("text", "") if hit.payload else "",
             "score": hit.score,
-            "session_id": hit.payload.get("session_id"),
-            "image_id": hit.payload.get("image_id"),
-            "chunk_index": hit.payload.get("chunk_index"),
-            "ocr_provider": hit.payload.get("ocr_provider")
+            "session_id": hit.payload.get("session_id") if hit.payload else None,
+            "image_id": hit.payload.get("image_id") if hit.payload else None,
+            "chunk_index": hit.payload.get("chunk_index") if hit.payload else None,
+            "ocr_provider": hit.payload.get("ocr_provider") if hit.payload else None
         }
-        for hit in results
+        for hit in results.points
     ]
 
 

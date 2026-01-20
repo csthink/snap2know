@@ -173,4 +173,4 @@ ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd de
 
 ## 下一步
 
-✅ Day 6 完成，继续 [Day 7：Device Agent MBP 通信](../Day7/Day7-Device-Agent-MBP通信.md)
+✅ Day 6 完成，继续 [Day 7：Device Agent MBP 通信](../Day7/Day7-Device-Agent-MBP通信-音频处理.md)

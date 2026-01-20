@@ -1564,27 +1564,19 @@ ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd de
 > 详细步骤参见 [Day6-Device-Agent-状态机-LCD渲染.md](docs/Day6/Day6-Device-Agent-状态机-LCD%20渲染.md)
 
 **交付**
-- 完整状态机实现（S0-S7 + Busy）
-- 按键事件 → 状态转换
-- **LCD UI 渲染**（PIL/Pillow 绘制 → SPI 推屏）
-- LED 状态同步
+- 状态机：Idle/Pre-Hold/Recording/Processing/Answering/Done/Menu/Error/Busy
+- 按键事件：短按/预按住/长按/超长按
+- LCD 渲染 + LED 同步
 
 **验收**
 ```bash
-# 在 Pi 上进行物理测试
-# 1. 启动 Device Agent，LCD 显示 idle 界面
-# 2. 短按 → LCD 显示 busy + ingest → 返回 idle
-# 3. 长按 → LCD 显示 recording + 录音时长滚动 → 松开
-# 4. 超长按 ≥3s → LCD 显示 menu 确认界面
+# 同步代码到 Pi
+sync-pi
 
-# 验证 LED 颜色与状态同步
+# 启动 Device Agent
+ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd device_agent && python main.py"
+# 短按→Busy→Idle, 长按→Recording→Processing→Done, 超长按→Menu
 
-# 防误触用例
-# 5. 按住 350ms：必须出现 Pre-hold 轻反馈（LED 变亮 + LCD 显示“继续按住…”）
-# 6. 按住 550ms：仍处 Pre-hold，不进入录音（不应变黄、不应显示 🎤）
-# 7. 按下 300–600ms 松开：不拍照、不录音、不进入 Busy（应保持 Idle）
-# 8. 达到 600ms 进入录音后立刻松开：进入 Recording 强反馈出现，但录音无效→不提交 STT，回 Idle
-# 9. Busy/Answering 中按住 ≥1.2s：在 1.2s 达到时立即取消/停止（不依赖释放）
 ```
 
 ---

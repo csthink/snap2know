@@ -182,7 +182,7 @@ class StateMachine:
     
     def can_cancel(self) -> bool:
         """是否可以取消当前操作"""
-        return self._state in (State.BUSY, State.PROCESSING, State.ANSWERING)
+        return self._state in (State.PROCESSING, State.ANSWERING)
     
     def cancel(self):
         """取消当前操作"""

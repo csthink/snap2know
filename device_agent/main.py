@@ -1,5 +1,5 @@
 """
-Snap2Know Device Agent - Main Entry Point (with State Machine)
+Snap2Know Device Agent - Main Entry Point (with MBP Communication)
 """
 import os
 import sys
@@ -18,10 +18,8 @@ from config import config
 def create_hardware():
     """创建硬件实例（根据环境自动选择真实或模拟模式）"""
     try:
-        # 尝试导入真实硬件模块
         from hardware import Camera, Audio, Button, LED, LCD
         
-        # 检测是否在树莓派上运行
         is_pi = os.path.exists("/proc/device-tree/model")
         
         if is_pi:
@@ -65,21 +63,27 @@ def setup_directories():
 
 def create_services(hw: dict):
     """创建服务实例"""
-    from services import StateMachine, ButtonHandler, LCDRenderer, State, RenderData
+    from services import StateMachine, ButtonHandler, LCDRenderer, MBPClient, TTSPlayer
     
-    # 创建状态机
     state_machine = StateMachine()
-    
-    # 创建按键处理器
     button_handler = ButtonHandler()
-    
-    # 创建 LCD 渲染器
     lcd_renderer = LCDRenderer(lcd_driver=hw["lcd"])
+    
+    # MBP 客户端
+    mbp_client = MBPClient(base_url=config.mbp_base_url)
+    
+    # TTS 播放器
+    tts_player = TTSPlayer(
+        audio_device=config.audio_device,
+        mbp_client=mbp_client
+    )
     
     return {
         "state_machine": state_machine,
         "button_handler": button_handler,
-        "lcd_renderer": lcd_renderer
+        "lcd_renderer": lcd_renderer,
+        "mbp_client": mbp_client,
+        "tts_player": tts_player
     }
 
 
@@ -90,12 +94,12 @@ def setup_callbacks(hw: dict, services: dict):
     state_machine = services["state_machine"]
     button_handler = services["button_handler"]
     lcd_renderer = services["lcd_renderer"]
+    mbp_client = services["mbp_client"]
+    tts_player = services["tts_player"]
     
     # 状态变更回调
     def on_state_change(old_state: State, new_state: State, data):
         print(f"[STATE] {old_state.name} -> {new_state.name}")
-        
-        # 更新按键处理器的取消状态
         button_handler.set_can_cancel(state_machine.can_cancel())
     
     def on_led_change(color: str):
@@ -123,35 +127,98 @@ def setup_callbacks(hw: dict, services: dict):
         on_lcd_update=on_lcd_update
     )
     
-    # 按键事件回调
+    # === 按键事件回调（集成 MBP 通信）===
+    
+    # 保存主事件循环引用（在 main_loop 中设置）
+    main_loop_ref = {"loop": None}
+    services["_main_loop_ref"] = main_loop_ref
+    
     def on_tap():
-        """短按 - 拍照入库"""
-        print("[BUTTON] Tap - Taking photo")
+        """短按 - 拍照入库 或 静音切换"""
         current_state = state_machine.state
         
         if current_state == State.IDLE:
+            print("[BUTTON] Tap - Taking photo")
             state_machine.transition_to(State.BUSY)
-            # TODO: 执行拍照入库
-            # 模拟处理
-            threading.Timer(2.0, lambda: state_machine.transition_to(State.IDLE)).start()
+            
+            # 在线程中执行拍照和上传
+            def do_photo_work():
+                try:
+                    # 拍照（同步）
+                    image_data = hw["camera"].capture_bytes()
+                    print(f"[PHOTO] Captured {len(image_data)} bytes")
+                    
+                    # 上传（需要异步，使用 run_coroutine_threadsafe）
+                    async def upload():
+                        result = await mbp_client.upload_image(image_data)
+                        return result
+                    
+                    loop = main_loop_ref.get("loop")
+                    if loop:
+                        future = asyncio.run_coroutine_threadsafe(upload(), loop)
+                        result = future.result(timeout=30)
+                        print(f"[PHOTO] Upload result: {result}")
+                    
+                    # 成功
+                    state_machine.transition_to(State.DONE)
+                    time.sleep(1.5)
+                    state_machine.reset()
+                    
+                except Exception as e:
+                    print(f"[PHOTO] Error: {e}")
+                    state_machine.set_error(str(e)[:20])
+            
+            threading.Thread(target=do_photo_work, daemon=True).start()
+            
         elif current_state == State.ANSWERING:
             # 静音切换
-            print("[BUTTON] Toggle mute")
+            is_muted = tts_player.toggle_mute()
+            print(f"[BUTTON] Toggle mute: {is_muted}")
+            
         elif current_state == State.ERROR:
             # 重试
             state_machine.reset()
     
     def on_pre_hold():
         """预按住 - 显示提示"""
+        current_state = state_machine.state
+        # 只在 IDLE 状态下响应
+        if current_state != State.IDLE:
+            return
         print("[BUTTON] Pre-hold")
         state_machine.transition_to(State.PRE_HOLD)
     
+    # 录音数据（在线程间共享）
+    recording_data = {"path": None, "task": None}
+    
     def on_hold_start():
         """长按开始 - 开始录音"""
+        current_state = state_machine.state
+        # 只在 PRE_HOLD 状态下响应
+        if current_state != State.PRE_HOLD:
+            return
         print("[BUTTON] Hold start - Recording")
         state_machine.transition_to(State.RECORDING)
         
-        # 启动录音时长更新
+        # 启动录音
+        recording_path = os.path.join(config.tmp_dir, "recording.wav")
+        recording_data["path"] = recording_path
+        
+        # 录音在后台线程
+        def do_record():
+            try:
+                hw["audio"].record(
+                    recording_path,
+                    duration=config.record_duration,
+                    sample_rate=config.record_sample_rate
+                )
+            except Exception as e:
+                print(f"[RECORD] Error: {e}")
+        
+        recording_thread = threading.Thread(target=do_record, daemon=True)
+        recording_thread.start()
+        
+        # 更新录音时长
         def update_duration():
             while state_machine.state == State.RECORDING:
                 state_machine.update_recording_duration()
@@ -164,27 +231,93 @@ def setup_callbacks(hw: dict, services: dict):
         print(f"[BUTTON] Hold end - Duration: {duration:.1f}s")
         state_machine.transition_to(State.PROCESSING, processing_message="语音识别中...")
         
-        # TODO: 上传音频到 MBP STT
-        # 模拟处理
-        def simulate_processing():
-            time.sleep(1.5)
-            state_machine.transition_to(State.ANSWERING)
-            state_machine.set_answer("这是一个模拟回答...")
-            time.sleep(3)
-            state_machine.transition_to(State.DONE)
-            time.sleep(2)
-            state_machine.reset()
+        def do_stt_and_qa_sync():
+            try:
+                # 读取录音
+                recording_path = recording_data.get("path")
+                if not recording_path or not os.path.exists(recording_path):
+                    state_machine.set_error("录音失败")
+                    return
+                
+                with open(recording_path, "rb") as f:
+                    audio_data = f.read()
+                print(f"[STT] Audio size: {len(audio_data)} bytes")
+                
+                loop = main_loop_ref.get("loop")
+                if not loop:
+                    state_machine.set_error("事件循环未就绪")
+                    return
+                
+                # STT（异步）
+                async def do_stt():
+                    return await mbp_client.speech_to_text(audio_data)
+                
+                future = asyncio.run_coroutine_threadsafe(do_stt(), loop)
+                text = future.result(timeout=30)
+                print(f"[STT] Result: {text}")
+                
+                if not text:
+                    state_machine.set_error("语音识别失败")
+                    return
+                
+                # 问答（异步）
+                state_machine.transition_to(State.ANSWERING)
+                state_machine.set_answer("")
+                
+                async def do_qa():
+                    await tts_player.start_playing()
+                    
+                    async def on_token_async(token_text):
+                        state_machine.append_answer(token_text)
+                        await tts_player.add_text(token_text)
+                    
+                    def on_token(token_text):
+                        asyncio.run_coroutine_threadsafe(
+                            on_token_async(token_text), loop
+                        )
+                    
+                    def on_done(data):
+                        print(f"[QA] Done: {data}")
+                        asyncio.run_coroutine_threadsafe(tts_player.flush(), loop)
+                    
+                    await mbp_client.ask_question(
+                        text,
+                        on_token=on_token,
+                        on_done=on_done
+                    )
+                    
+                    await tts_player.wait_until_done()
+                
+                future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
+                future.result(timeout=120)
+                
+                # 完成
+                state_machine.transition_to(State.DONE)
+                time.sleep(2)
+                state_machine.reset()
+                
+            except Exception as e:
+                print(f"[QA] Error: {e}")
+                state_machine.set_error(str(e)[:20])
         
-        threading.Thread(target=simulate_processing, daemon=True).start()
+        threading.Thread(target=do_stt_and_qa_sync, daemon=True).start()
     
     def on_long_hold():
         """超长按 - 进入菜单"""
+        current_state = state_machine.state
+        # 只在 RECORDING 状态下响应超长按
+        if current_state != State.RECORDING:
+            return
         print("[BUTTON] Long hold - Menu")
         state_machine.transition_to(State.MENU)
     
     def on_cancel():
         """取消操作"""
+        # 只在可取消状态下响应
+        if not state_machine.can_cancel():
+            return
         print("[BUTTON] Cancel")
+        tts_player.stop()
         state_machine.cancel()
     
     button_handler.set_callbacks(
@@ -202,8 +335,6 @@ def setup_button_gpio(hw: dict, button_handler):
     try:
         hw["button"].on_press(button_handler.on_press)
         
-        # 对于 GPIO，需要单独处理松开事件
-        # 这里使用轮询检测松开
         def poll_release():
             was_pressed = False
             while True:
@@ -222,6 +353,21 @@ def setup_button_gpio(hw: dict, button_handler):
         print(f"[BUTTON] GPIO setup failed: {e}")
 
 
+async def init_mbp_connection(services: dict):
+    """初始化 MBP 连接"""
+    mbp_client = services["mbp_client"]
+    
+    print("[MBP] Checking connection...")
+    if await mbp_client.health_check():
+        print("[MBP] Connected!")
+        session_id = await mbp_client.create_session()
+        print(f"[MBP] Session: {session_id}")
+        return True
+    else:
+        print("[MBP] Connection failed!")
+        return False
+
+
 async def main_loop(hw: dict, services: dict):
     """主事件循环"""
     from services import State
@@ -229,8 +375,17 @@ async def main_loop(hw: dict, services: dict):
     state_machine = services["state_machine"]
     button_handler = services["button_handler"]
     
+    # 设置事件循环引用（供按键回调使用）
+    if "_main_loop_ref" in services:
+        services["_main_loop_ref"]["loop"] = asyncio.get_event_loop()
+    
     print("[INFO] Device Agent starting...")
     print(f"[INFO] MBP Backend: {config.mbp_base_url}")
+    
+    # 初始化 MBP 连接
+    if not await init_mbp_connection(services):
+        print("[WARN] MBP not available, some features disabled")
+    
     print("[INFO] Press button to interact, Ctrl+C to exit\n")
     
     # 初始化为空闲状态
@@ -247,9 +402,19 @@ async def main_loop(hw: dict, services: dict):
         print("[INFO] Main loop cancelled")
 
 
+async def cleanup_async(services: dict):
+    """异步清理"""
+    if "mbp_client" in services:
+        await services["mbp_client"].close()
+
+
 def cleanup(hw: dict, services: dict):
     """清理资源"""
     print("[INFO] Cleaning up...")
+    
+    # 停止 TTS
+    if "tts_player" in services:
+        services["tts_player"].stop()
     
     try:
         hw["led"].off()
@@ -285,62 +450,39 @@ def test_hardware(hw: dict):
     """测试硬件模块"""
     print("\n[TEST] Testing hardware modules...")
     
-    # LED 测试
-    print("  - LED: ", end="")
-    try:
-        hw["led"].set_color("blue")
-        print("OK")
-    except Exception as e:
-        print(f"FAILED: {e}")
+    for name in ["led", "lcd", "button"]:
+        print(f"  - {name.upper()}: ", end="")
+        try:
+            if name == "led":
+                hw["led"].set_color("blue")
+            elif name == "lcd":
+                hw["lcd"].show_text("Test")
+            elif name == "button":
+                hw["button"].is_pressed()
+            print("OK")
+        except Exception as e:
+            print(f"FAILED: {e}")
     
-    # LCD 测试
-    print("  - LCD: ", end="")
-    try:
-        hw["lcd"].show_text("Test")
-        print("OK")
-    except Exception as e:
-        print(f"FAILED: {e}")
-    
-    # Button 测试
-    print("  - Button: ", end="")
-    try:
-        _ = hw["button"].is_pressed() if hasattr(hw["button"], "is_pressed") else True
-        print("OK")
-    except Exception as e:
-        print(f"FAILED: {e}")
-    
-    # Camera 测试
     print("  - Camera: OK (lazy init)")
-    
-    # Audio 测试
     print("  - Audio: OK (lazy init)")
-    
     print("[TEST] Hardware test complete\n")
 
 
 def main():
     """主入口"""
     print("=" * 50)
-    print("  Snap2Know Device Agent v2.0 (State Machine)")
+    print("  Snap2Know Device Agent v3.0 (MBP Integration)")
     print("=" * 50)
     
-    # 设置目录
     setup_directories()
-    
-    # 创建硬件实例
     hw = create_hardware()
     
-    # 测试硬件
     if config.debug:
         test_hardware(hw)
     
-    # 创建服务
     services = create_services(hw)
-    
-    # 配置回调
     setup_callbacks(hw, services)
     
-    # 设置信号处理
     def signal_handler(sig, frame):
         print("\n[INFO] Received shutdown signal")
         cleanup(hw, services)
@@ -349,7 +491,6 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # 运行主循环
     try:
         asyncio.run(main_loop(hw, services))
     except KeyboardInterrupt:

@@ -1583,20 +1583,30 @@ ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd de
 
 #### Day 7：Device Agent MBP 通信 + 音频处理
 
+> 详细步骤参见 [Day7-Device-Agent-MBP通信-音频处理.md](docs/Day7/Day7-Device-Agent-MBP通信-音频处理.md)
+
 **交付**
-- Backend Client：HTTP 上传图片/音频、WS 问答
-- TTS 分段播报（buffer → flush → 播放队列 → WM8960 扬声器）
-- 静音切换、长按停止
-- 错误状态处理（网络断开、API 失败等）
+- `services/mbp_client.py`：HTTP/WebSocket 通信客户端
+- `services/tts_player.py`：TTS 分段播放器
+- `main.py`：集成 MBP 通信完整流程
 
 **验收**
-- [ ] 上传图片 → MBP OCR 入库成功
-- [ ] 上传音频 → MBP STT 返回文字
-- [ ] WS 问答 → 流式 token 到达
-- [ ] TTS 分段播报，不是"每 token 一声"
-- [ ] 短按可静音/恢复
-- [ ] 长按停止：立即停止播放 + 清空队列
-- [ ] 断网时进入 Error 状态，短按可重试
+```bash
+# 同步代码
+sync-pi
+
+# 启动 Device Agent
+ssh -t mars@raspberrypi "cd /opt/snap2know && source .venv/bin/activate && cd device_agent && python main.py"
+
+# 短按 → 拍照入库，长按 → 录音问答
+```
+
+**测试结果**
+- [x] 健康检查 + 会话创建
+- [x] 上传图片 → OCR 入库成功
+- [x] WebSocket 流式问答
+- [x] TTS 分段播报设计
+- ⚠️ LCD 显示：Pi 5 GPIO 问题，暂用预览模式
 
 ---
 

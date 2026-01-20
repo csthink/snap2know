@@ -23,6 +23,12 @@
 
 ---
 
+- 解决 Pi 上的 /opt 目录权限问题
+
+```shell
+ssh mars@raspberrypi "sudo mkdir -p /opt/snap2know && sudo chown mars:mars /opt/snap2know"
+```
+
 ## 项目结构
 
 ```

@@ -1657,8 +1657,8 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 - [x] Test 2：短按拍照入库
 - [x] Test 3：长按录音问答
 - [x] Test 4：上下文问答
-- [x] Test 5：菜单显示（交互待开发）
-- [ ] Test 6：新建会话（待开发）
+- [x] Test 5：菜单功能（选择 + 确认）
+- [x] Test 6：新建会话
 - [x] Test 7：错误处理
 - [x] Test 8：播放取消
 

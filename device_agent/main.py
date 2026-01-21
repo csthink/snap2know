@@ -189,23 +189,79 @@ def setup_callbacks(hw: dict, services: dict):
         elif current_state == State.ERROR:
             # 重试
             state_machine.reset()
+        
+        elif current_state == State.MENU:
+            # 菜单中短按：循环选择
+            current_selection = state_machine.data.menu_selection
+            new_selection = (current_selection + 1) % 3  # 3 个菜单项
+            state_machine._data.menu_selection = new_selection
+            print(f"[MENU] Selection: {new_selection}")
+            # 更新 LCD 显示
+            if state_machine._on_lcd_update:
+                state_machine._on_lcd_update(state_machine.state, state_machine.data)
     
     def on_pre_hold():
         """预按住 - 显示提示"""
         current_state = state_machine.state
         # 只在 IDLE 状态下响应
-        if current_state != State.IDLE:
-            return
-        print("[BUTTON] Pre-hold")
-        state_machine.transition_to(State.PRE_HOLD)
+        if current_state == State.IDLE:
+            print("[BUTTON] Pre-hold")
+            state_machine.transition_to(State.PRE_HOLD)
+        elif current_state == State.MENU:
+            # 菜单中预按住：准备确认
+            print("[BUTTON] Pre-hold in menu - preparing to confirm")
+    
+    def execute_menu_action(selection: int):
+        """执行菜单操作"""
+        print(f"[MENU] === Executing menu action, selection={selection} ===")
+        
+        if selection == 0:
+            # 清除会话
+            print("[MENU] Action: Clearing session...")
+            
+            async def clear_session():
+                try:
+                    new_session = await mbp_client.create_session()
+                    print(f"[MENU] New session created: {new_session}")
+                except Exception as e:
+                    print(f"[MENU] Error creating session: {e}")
+            
+            loop = main_loop_ref.get("loop")
+            if loop:
+                asyncio.run_coroutine_threadsafe(clear_session(), loop)
+            else:
+                print("[MENU] Warning: No event loop available")
+            
+            state_machine.reset()
+            
+        elif selection == 1:
+            # 网络设置（暂未实现）
+            print("[MENU] Action: Network settings - not implemented")
+            state_machine.reset()
+            
+        elif selection == 2:
+            # 返回
+            print("[MENU] Action: Return to idle")
+            state_machine.reset()
+        else:
+            print(f"[MENU] Unknown selection: {selection}")
+            state_machine.reset()
     
     # 录音数据（在线程间共享）
     recording_data = {"path": None, "task": None}
     
     def on_hold_start():
-        """长按开始 - 开始录音"""
+        """长按开始 - 开始录音 或 菜单确认"""
         current_state = state_machine.state
-        # 只在 PRE_HOLD 状态下响应
+        
+        if current_state == State.MENU:
+            # 菜单中长按：确认选择
+            selection = state_machine.data.menu_selection
+            print(f"[BUTTON] Hold in menu - confirming selection {selection}")
+            execute_menu_action(selection)
+            return
+        
+        # 只在 PRE_HOLD 状态下响应录音
         if current_state != State.PRE_HOLD:
             return
         print("[BUTTON] Hold start - Recording")

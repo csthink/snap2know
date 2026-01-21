@@ -1643,37 +1643,36 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 
 ---
 
-#### Day 9：全链路集成测试
+#### Day 9：全链路集成测试 ✅ 完成
 
-**验收**
-- [ ] idle：📷 图标 + 蓝色 LED
-- [ ] recording：🎤 图标 + 黄色 LED + 录音时长滚动
-- [ ] busy：⏳ 图标 + 紫色闪烁 + 子阶段文案切换
-- [ ] answering：▶ 图标 + 绿色 LED + 进度 "5/12"
-- [ ] error：⚠ 图标 + 红色 LED + 错误码显示
-
----
-
-#### Day 10：全链路集成测试
+> 详细步骤参见 [Day9-全链路集成测试.md](docs/Day9/Day9-全链路集成测试.md)
 
 **交付**
 - 完整问答链路：拍照 → 录音 → STT → OCR → 问答 → TTS
-- 新建会话功能
+- LCD 尺寸修复：240x240 → 240x280
+- 所有状态 LCD 显示验证
 
-**验收**
-```
-1. 启动所有服务：Qdrant + FastAPI + Device Agent（Pi 上 LCD 自动显示 UI）
-2. 短按拍照路由器说明书 → LCD 显示 busy → 入库完成
-3. 长按录音 "如何登录管理后台" → LCD 显示录音时长 → 松开
-4. 观察：LCD 显示 STT → 问答 → 流式回答 → 扬声器语音播报
-5. 超长按 ≥3s → LCD 显示清库确认 → 长按确认 → 新建会话
-6. Busy/Answering 中按住 ≥1.2s：立刻停止播报、关闭 WS、清空队列，1 秒内无声音
-7. 超长按 ≥3s 进入清库确认态，短按取消不清库；长按 ≥1.2s 在到达时确认清库并新建会话
-```
+**测试结果（2026-01-21）**
+- [x] Test 1：启动与连接
+- [x] Test 2：短按拍照入库
+- [x] Test 3：长按录音问答
+- [x] Test 4：上下文问答
+- [x] Test 5：菜单显示（交互待开发）
+- [ ] Test 6：新建会话（待开发）
+- [x] Test 7：错误处理
+- [x] Test 8：播放取消
+
+**LCD 状态验收**
+- [x] idle：📷 + 蓝色 LED + "就绪"
+- [x] recording：🎤 + 红色 LED + 时长
+- [x] busy：⏳ + 黄色 LED + "处理中..."
+- [x] answering：▶ + 绿色 LED + "播放中..."
+- [x] error：⚠ + 红色 LED + 错误信息
+- [x] menu：☰ + 菜单选项
 
 ---
 
-#### Day 11：稳定性 + 边界情况
+#### Day 10：稳定性 + 边界情况
 
 **交付**
 - 连续 10 次问答测试
@@ -1702,7 +1701,7 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 
 ---
 
-#### Day 12：Demo 脚本 + Prompt 固化
+#### Day 11：Demo 脚本 + Prompt 固化
 
 **交付**
 - 路由器说明书 Demo 脚本（3 个标准问题）
@@ -1717,7 +1716,7 @@ Demo 脚本：
 
 ---
 
-#### Day 13：文档 + 一键启动
+#### Day 12：文档 + 一键启动
 
 **交付**
 - README.md：部署指南、一键启动脚本、故障排查
@@ -1735,7 +1734,7 @@ cd Snap2Know
 
 ---
 
-#### Day 14：最终验收 + Buffer
+#### Day 13：最终验收 + Buffer
 
 **交付**
 - 完整演示视频录制

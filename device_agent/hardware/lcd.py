@@ -17,7 +17,7 @@ class LCD:
     
     # LCD 配置
     WIDTH = 240
-    HEIGHT = 240  # 可视区高度
+    HEIGHT = 280  # WhisplayBoard 实际高度
     REAL_HEIGHT = 280  # 实际高度
     
     def __init__(self):

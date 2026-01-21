@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 # 屏幕尺寸
 SCREEN_WIDTH = 240
-SCREEN_HEIGHT = 240
+SCREEN_HEIGHT = 280  # WhisplayBoard 实际高度
 
 # 颜色定义
 COLORS = {
@@ -233,16 +233,22 @@ class LCDRenderer:
         """渲染菜单状态"""
         image, draw = self._create_canvas(COLORS["bg_menu"])
         
-        self._draw_centered_text(draw, "⚙️", 30, self._font_large, COLORS["text_primary"])
-        self._draw_centered_text(draw, "菜单", 80, self._font_medium, COLORS["text_primary"])
+        # 使用文字代替 emoji（避免布局问题）
+        self._draw_centered_text(draw, "[ 菜单 ]", 40, self._font_medium, COLORS["text_primary"])
+        
+        # 分隔线
+        draw.line([(40, 75), (200, 75)], fill=COLORS["text_secondary"], width=1)
         
         menu_items = ["清除会话", "网络设置", "返回"]
-        y = 120
+        y = 100
         for i, item in enumerate(menu_items):
             color = COLORS["text_accent"] if i == data.menu_selection else COLORS["text_secondary"]
-            prefix = "▶ " if i == data.menu_selection else "  "
-            self._draw_centered_text(draw, f"{prefix}{item}", y, self._font_small, color)
-            y += 30
+            prefix = "> " if i == data.menu_selection else "  "
+            self._draw_centered_text(draw, f"{prefix}{item}", y, self._font_medium, color)
+            y += 40
+        
+        # 底部提示
+        self._draw_centered_text(draw, "短按选择 · 长按确认", 220, self._font_small, COLORS["text_accent"])
         
         return image
     

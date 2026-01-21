@@ -69,16 +69,30 @@ async def retrieve_context(
     return results, context_text
 
 
-def build_system_prompt() -> str:
-    """构建系统提示词"""
-    return """你是 Snap2Know 智能助手。用户会拍摄产品说明书、使用手册等文档，你需要根据检索到的文档内容回答用户问题。
+def build_system_prompt(has_context: bool = True) -> str:
+    """
+    构建系统提示词
+    
+    Args:
+        has_context: 是否有文档上下文
+    """
+    if has_context:
+        return """你是 Snap2Know 智能助手。用户会拍摄产品说明书、使用手册等文档，你需要根据检索到的文档内容回答用户问题。
 
 请遵循以下规则：
-1. 只根据提供的文档内容回答，不要编造信息
-2. 如果文档中没有相关信息，请明确告知用户
+1. 优先根据提供的文档内容回答
+2. 如果文档中没有相关信息，可以结合通用知识回答，但要说明这不是来自文档
 3. 回答要简洁、准确、易懂
 4. 如果是操作步骤，请分点列出
 5. 使用中文回答"""
+    else:
+        return """你是 Snap2Know 智能助手，一个友好的AI助手。你可以回答各种问题、闲聊或提供帮助。
+
+请遵循以下规则：
+1. 友好、自然地与用户交流
+2. 回答要简洁、准确、易懂
+3. 如果用户需要查阅特定文档内容，可以提醒他们拍摄相关文档
+4. 使用中文回答"""
 
 
 def build_user_prompt(question: str, context: str) -> str:
@@ -93,9 +107,10 @@ def build_user_prompt(question: str, context: str) -> str:
         完整的用户提示词
     """
     if not context:
+        # 无文档上下文：直接回答用户问题（混合模式）
         return f"""用户问题：{question}
 
-注意：未找到相关文档内容。请告知用户需要先拍摄相关文档。"""
+请直接回答用户的问题。"""
     
     return f"""以下是从用户拍摄的文档中检索到的相关内容：
 

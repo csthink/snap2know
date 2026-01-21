@@ -32,7 +32,7 @@ async def stream_claude_response(
     """
     import asyncio
     
-    system_prompt = build_system_prompt()
+    system_prompt = build_system_prompt(has_context=bool(context))
     user_prompt = build_user_prompt(question, context)
     
     # 检测是否使用 OpenRouter（通过 base_url 判断）

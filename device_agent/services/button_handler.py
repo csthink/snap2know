@@ -23,7 +23,7 @@ class ButtonHandler:
     # 时间阈值（毫秒）
     THRESHOLD_TAP = 300        # 短按阈值
     THRESHOLD_HOLD = 600       # 长按阈值
-    THRESHOLD_LONG_HOLD = 5000  # 超长按阈值（进入菜单）
+    THRESHOLD_LONG_HOLD = 30000  # 超长按阈值（进入菜单，改为 30 秒以支持长录音）
     THRESHOLD_CANCEL = 1200    # 取消阈值
     
     def __init__(self):

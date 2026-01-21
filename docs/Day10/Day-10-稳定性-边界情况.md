@@ -246,11 +246,12 @@ ssh mars@raspberrypi "ls -la /tmp/*.wav /tmp/*.mp3 2>/dev/null | wc -l"
 
 | 问题 | 严重程度 | 状态 |
 |------|----------|------|
-| 无文档时不能闲聊，需支持混合模式 | 中 | 待开发 |
+| 无文档时不能闲聊，需支持混合模式 | 中 | ✅ 已开发 |
 | STT 连续 500 错误（api.gptsapi.net 不稳定） | 高 | 待官方 OpenAI Key |
 | LCD 黑屏（连续错误后） | 高 | 需调查 |
 | LCD 布局文字错乱（偶发） | 中 | 需调查 |
 | OpenRouter 不支持 Whisper STT | 中 | 考虑 Groq API |
+| 菜单长按时间需延长以支持长录音 | 低 | ✅ 已调整为 30s |
 
 ---
 

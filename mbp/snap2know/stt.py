@@ -51,14 +51,18 @@ async def transcribe_audio(
     # 读取音频内容
     audio_content = await audio.read()
     
-    # 配置 OpenAI 客户端（支持代理和自定义地址）
+    # 配置 OpenAI 客户端（支持单独的 STT API 配置）
     import httpx
     
-    client_kwargs = {"api_key": settings.openai_api_key}
+    # 优先使用 STT 专用配置，否则回退到 OpenAI 通用配置
+    api_key = settings.stt_api_key or settings.openai_api_key
+    base_url = settings.stt_base_url  # 如果为空，使用 OpenAI 官方地址
     
-    # 自定义 API 地址
-    if settings.openai_base_url:
-        client_kwargs["base_url"] = settings.openai_base_url
+    client_kwargs = {"api_key": api_key}
+    
+    # 自定义 API 地址（只有 STT 专用地址时才设置）
+    if base_url:
+        client_kwargs["base_url"] = base_url
     
     # 代理配置
     if settings.http_proxy or settings.https_proxy:
@@ -70,9 +74,16 @@ async def transcribe_audio(
     
     start_time = time.time()
     try:
+        # 根据 API 提供商选择模型
+        # Groq 使用 whisper-large-v3，OpenAI 使用 whisper-1
+        if base_url and "groq" in base_url.lower():
+            model = "whisper-large-v3"
+        else:
+            model = "whisper-1"
+        
         # 创建临时文件对象用于 API 调用
         transcription = client.audio.transcriptions.create(
-            model="whisper-1",
+            model=model,
             file=(audio.filename or "audio.wav", audio_content),
             language="zh",  # 中文
             response_format="text"

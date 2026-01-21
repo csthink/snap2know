@@ -52,8 +52,11 @@ async def ocr_with_claude(image_base64: str, mime_type: str) -> str:
     
     client = anthropic.Anthropic(**client_kwargs)
     
+    # OpenRouter 兼容：使用标准 Claude 模型名
+    model_name = "claude-3-5-sonnet-20241022"
+    
     message = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model=model_name,
         max_tokens=4096,
         messages=[
             {

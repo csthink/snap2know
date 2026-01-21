@@ -12,9 +12,13 @@ class Settings(BaseSettings):
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     
-    # OpenAI 配置
+    # OpenAI 配置（用于 LLM、Embedding）
     openai_api_key: str = ""
     openai_base_url: str = ""  # 可选：自定义 API 地址
+    
+    # STT 配置（Whisper API，可单独配置）
+    stt_api_key: str = ""      # 如未设置，使用 openai_api_key
+    stt_base_url: str = ""     # 如未设置，使用官方 OpenAI API
     
     # Anthropic 配置
     anthropic_api_key: str = ""

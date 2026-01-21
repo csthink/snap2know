@@ -155,9 +155,29 @@ def setup_callbacks(hw: dict, services: dict):
             # 在线程中执行拍照和上传
             def do_photo_work():
                 try:
+                    from PIL import Image
+                    import io
+                    
                     # 拍照（同步）
                     image_data = hw["camera"].capture_bytes()
                     print(f"[PHOTO] Captured {len(image_data)} bytes")
+                    
+                    # 在 LCD 上显示拍摄的图片预览
+                    try:
+                        img = Image.open(io.BytesIO(image_data))
+                        # 调整大小以适应 LCD（240x280）
+                        img.thumbnail((240, 280), Image.Resampling.LANCZOS)
+                        # 创建黑色背景
+                        lcd_img = Image.new("RGB", (240, 280), (0, 0, 0))
+                        # 居中放置
+                        x = (240 - img.width) // 2
+                        y = (280 - img.height) // 2
+                        lcd_img.paste(img, (x, y))
+                        # 显示
+                        hw["lcd"].draw_image(lcd_img)
+                        print("[PHOTO] Preview displayed on LCD")
+                    except Exception as e:
+                        print(f"[PHOTO] Preview error: {e}")
                     
                     # 上传（需要异步，使用 run_coroutine_threadsafe）
                     async def upload():
@@ -170,7 +190,7 @@ def setup_callbacks(hw: dict, services: dict):
                         result = future.result(timeout=30)
                         print(f"[PHOTO] Upload result: {result}")
                     
-                    # 成功
+                    # 成功，继续显示图片 1.5 秒
                     state_machine.transition_to(State.DONE)
                     time.sleep(1.5)
                     state_machine.reset()

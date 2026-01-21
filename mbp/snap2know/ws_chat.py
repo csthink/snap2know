@@ -23,42 +23,67 @@ async def stream_claude_response(
     """
     调用 Claude Sonnet API 并发送回答
     
-    注意：由于 API 代理不支持流式，使用非流式 API 并模拟流式输出
+    支持两种模式：
+    - OpenRouter: 使用 OpenAI SDK
+    - Anthropic: 使用 Anthropic SDK
     
     Returns:
         生成的总 token 数量
     """
-    import anthropic
     import asyncio
-    
-    # 配置客户端
-    client_kwargs = {"api_key": settings.anthropic_api_key}
-    
-    if settings.anthropic_base_url:
-        client_kwargs["base_url"] = settings.anthropic_base_url
-    
-    if settings.http_proxy or settings.https_proxy:
-        client_kwargs["http_client"] = httpx.Client(
-            proxy=settings.https_proxy or settings.http_proxy
-        )
-    
-    # 使用同步客户端（非流式 API）
-    client = anthropic.Anthropic(**client_kwargs)
     
     system_prompt = build_system_prompt()
     user_prompt = build_user_prompt(question, context)
     
-    # 非流式调用
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=2048,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": user_prompt}
-        ]
-    )
+    # 检测是否使用 OpenRouter（通过 base_url 判断）
+    use_openrouter = settings.anthropic_base_url and "openrouter" in settings.anthropic_base_url.lower()
     
-    full_text = response.content[0].text
+    if use_openrouter:
+        # 使用 OpenAI SDK 调用 OpenRouter
+        from openai import OpenAI
+        
+        client = OpenAI(
+            api_key=settings.anthropic_api_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
+        
+        response = client.chat.completions.create(
+            model="anthropic/claude-3.5-sonnet",  # OpenRouter 格式
+            max_tokens=2048,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        full_text = response.choices[0].message.content
+    else:
+        # 使用 Anthropic SDK
+        import anthropic
+        
+        client_kwargs = {"api_key": settings.anthropic_api_key}
+        
+        if settings.anthropic_base_url:
+            client_kwargs["base_url"] = settings.anthropic_base_url
+        
+        if settings.http_proxy or settings.https_proxy:
+            client_kwargs["http_client"] = httpx.Client(
+                proxy=settings.https_proxy or settings.http_proxy
+            )
+        
+        client = anthropic.Anthropic(**client_kwargs)
+        
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        full_text = response.content[0].text
+    
     total_tokens = len(full_text) // 2  # 估算 token 数
     
     # 模拟流式输出：分块发送

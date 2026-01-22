@@ -31,3 +31,4 @@ mbp/qdrant_storage/*.json
 
 # Models
 mbp/snap2know/models/
+mbp/snap2know/images/

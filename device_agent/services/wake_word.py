@@ -267,7 +267,19 @@ class WakeWordDetector:
         
         # 正常唤醒词检测
         if self._contains_wake_word(text):
-            count = text.count(self.wake_word)
+            # 统计唤醒词及所有变体出现的总次数
+            count = 0
+            if self.wake_word in text:
+                count += text.count(self.wake_word)
+            
+            for variant in self.WAKE_WORD_VARIANTS:
+                if variant in text:
+                    count += text.count(variant)
+            
+            # 保底：如果检测到了但计数为0（防止逻辑漏洞），至少算1次
+            if count == 0:
+                count = 1
+                
             now = time.time()
             
             for _ in range(count):

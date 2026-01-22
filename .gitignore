@@ -28,3 +28,6 @@ Thumbs.db
 # Qdrant data (keep structure, ignore contents)
 mbp/qdrant_storage/*.json
 !mbp/qdrant_storage/.gitkeep
+
+# Models
+mbp/snap2know/models/

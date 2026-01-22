@@ -34,6 +34,24 @@ app.include_router(ocr_router, tags=["OCR"])
 app.include_router(ws_chat_router, tags=["Chat"])
 
 
+@app.on_event("startup")
+async def startup_event():
+    """启动事件：预热本地模型"""
+    import threading
+    from local_stt import LocalSTT
+    
+    def prewarm_model():
+        print("[Startup] Pre-warming LocalSTT model...")
+        try:
+            LocalSTT.get_instance()._load_model()
+            print("[Startup] LocalSTT model ready.")
+        except Exception as e:
+            print(f"[Startup] Failed to pre-warm model: {e}")
+            
+    # 在后台线程中加载模型，不阻塞启动
+    threading.Thread(target=prewarm_model, daemon=True).start()
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""

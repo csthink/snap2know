@@ -1687,7 +1687,7 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 
 **API 集成优化**
 - LLM/OCR：OpenRouter API (Claude 3.5 Sonnet)
-- STT：Groq API (Whisper Large V3)
+- STT：Groq API (Whisper Large V3) + **自动本地降级** (Faster-Whisper @ M2 Max)
 - 模型分离：RAG 使用 Claude，闲聊使用 GPT-4o-mini
 
 **测试结果**

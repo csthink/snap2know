@@ -74,8 +74,14 @@ async def transcribe_audio(
     
     start_time = time.time()
     try:
+        # 尝试使用在线 API (Groq/OpenAI)
+        logging_prefix = "[STT]"
+        if base_url and "groq" in base_url.lower():
+            logging_prefix = "[STT-Groq]"
+        
+        print(f"{logging_prefix} Transcribing with API...")
+        
         # 根据 API 提供商选择模型
-        # Groq 使用 whisper-large-v3，OpenAI 使用 whisper-1
         if base_url and "groq" in base_url.lower():
             model = "whisper-large-v3"
         else:
@@ -88,17 +94,41 @@ async def transcribe_audio(
             language="zh",  # 中文
             response_format="text"
         )
-        
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        
-        return STTResponse(
-            question_text=transcription.strip(),
-            stt_ms=elapsed_ms,
-            session_id=session_id
-        )
+        text = transcription.strip()
         
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"STT failed: {str(e)}"
-        )
+        print(f"[STT] API failed: {e}. Falling back to LocalSTT...")
+        
+        # API 失败，回退到本地 Faster-Whisper
+        try:
+            # 将内容写入临时文件供本地读取
+            import tempfile
+            import os
+            from local_stt import LocalSTT
+            
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_f:
+                tmp_f.write(audio_content)
+                tmp_path = tmp_f.name
+            
+            try:
+                local_stt = LocalSTT.get_instance()
+                text = local_stt.transcribe(tmp_path)
+                print(f"[STT-Local] Transcription result: {text[:20]}...")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                    
+        except Exception as local_e:
+            print(f"[STT] Local fallback failed: {local_e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"STT failed (API: {str(e)}, Local: {str(local_e)})"
+            )
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    
+    return STTResponse(
+        question_text=text,
+        stt_ms=elapsed_ms,
+        session_id=session_id
+    )

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""  # 可选：自定义 API 地址
     
+    # 模型配置
+    rag_model: str = "anthropic/claude-3.5-sonnet"  # 文档问答模型
+    chat_model: str = "openai/gpt-4o-mini"       # 闲聊模型
+    
     # 代理配置
     http_proxy: str = ""  # HTTP 代理，如 http://127.0.0.1:7890
     https_proxy: str = ""  # HTTPS 代理

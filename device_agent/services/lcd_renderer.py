@@ -175,7 +175,8 @@ class LCDRenderer:
         self._draw_centered_text(draw, "🎤", 50, self._font_large, COLORS["text_primary"])
         
         # 录音状态
-        self._draw_centered_text(draw, "正在录音", 110, self._font_medium, COLORS["text_primary"])
+        status_text = data.message if data.message else "正在录音"
+        self._draw_centered_text(draw, status_text, 110, self._font_medium, COLORS["text_primary"])
         
         # 录音时长
         duration = data.duration

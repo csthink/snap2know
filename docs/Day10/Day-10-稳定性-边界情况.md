@@ -252,6 +252,8 @@ ssh mars@raspberrypi "ls -la /tmp/*.wav /tmp/*.mp3 2>/dev/null | wc -l"
 | LCD 布局文字错乱（偶发） | 中 | 需调查 |
 | OpenRouter 不支持 Whisper STT | 中 | 考虑 Groq API |
 | 菜单长按时间需延长以支持长录音 | 低 | ✅ 已调整为 30s |
+| 闲聊模式流程优化（AI回答后自动录音，支持连续对话）| 中 | ✅ 已实现 (VAD) |
+| 短按停止对话功能 | 中 | ✅ 已实现 |
 
 ---
 

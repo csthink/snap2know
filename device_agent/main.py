@@ -144,9 +144,19 @@ def setup_callbacks(hw: dict, services: dict):
     main_loop_ref = {"loop": None}
     services["_main_loop_ref"] = main_loop_ref
     
+    # 停止对话标志（用于中断连续对话循环）
+    conversation_control = {"stop_requested": False}
+    
     def on_tap():
-        """短按 - 拍照入库 或 静音切换"""
+        """短按 - 拍照入库 或 停止对话"""
         current_state = state_machine.state
+        
+        # 在对话进行中时，短按停止对话
+        if current_state in (State.RECORDING, State.ANSWERING, State.PROCESSING):
+            print("[BUTTON] Tap - Stopping conversation")
+            conversation_control["stop_requested"] = True
+            tts_player.stop()
+            return
         
         if current_state == State.IDLE:
             print("[BUTTON] Tap - Taking photo")
@@ -319,74 +329,121 @@ def setup_callbacks(hw: dict, services: dict):
         state_machine.transition_to(State.PROCESSING, processing_message="语音识别中...")
         
         def do_stt_and_qa_sync():
-            try:
-                # 读取录音
-                recording_path = recording_data.get("path")
-                if not recording_path or not os.path.exists(recording_path):
-                    state_machine.set_error("录音失败")
-                    return
-                
+            # 获取初始录音数据
+            initial_audio_data = None
+            recording_path = recording_data.get("path")
+            if recording_path and os.path.exists(recording_path):
                 with open(recording_path, "rb") as f:
-                    audio_data = f.read()
-                print(f"[STT] Audio size: {len(audio_data)} bytes")
-                
-                loop = main_loop_ref.get("loop")
-                if not loop:
-                    state_machine.set_error("事件循环未就绪")
-                    return
-                
-                # STT（异步）
-                async def do_stt():
-                    return await mbp_client.speech_to_text(audio_data)
-                
-                future = asyncio.run_coroutine_threadsafe(do_stt(), loop)
-                text = future.result(timeout=30)
-                print(f"[STT] Result: {text}")
-                
-                if not text:
-                    state_machine.set_error("语音识别失败")
-                    return
-                
-                # 问答（异步）
-                state_machine.transition_to(State.ANSWERING)
-                state_machine.set_answer("")
-                
-                async def do_qa():
-                    await tts_player.start_playing()
+                    initial_audio_data = f.read()
+            
+            # 当前处理的音频数据
+            current_audio_data = initial_audio_data
+            
+            # 重置停止标志
+            conversation_control["stop_requested"] = False
+            
+            # 连续对话循环
+            while True:
+                # 检查是否请求停止
+                if conversation_control["stop_requested"]:
+                    print("[LOOP] Stop requested, ending conversation")
+                    break
                     
-                    async def on_token_async(token_text):
-                        state_machine.append_answer(token_text)
-                        await tts_player.add_text(token_text)
-                    
-                    def on_token(token_text):
-                        asyncio.run_coroutine_threadsafe(
-                            on_token_async(token_text), loop
+                try:
+                    # 如果没有音频数据（第二轮起），进行 VAD 录音
+                    if not current_audio_data:
+                        print("[LOOP] Starting auto-recording (VAD)...")
+                        state_machine.transition_to(State.RECORDING, processing_message="听请说话...")
+                        
+                        vad_path = os.path.join(config.tmp_dir, "vad_recording.wav")
+                        has_voice = hw["audio"].record_vad(
+                            vad_path,
+                            max_duration=config.vad_max_duration,
+                            silence_threshold=config.vad_threshold,
+                            silence_duration=config.vad_silence_duration,
+                            sample_rate=config.record_sample_rate
                         )
+                        
+                        if not has_voice:
+                            print("[LOOP] No voice detected, ending conversation")
+                            break
+                        
+                        with open(vad_path, "rb") as f:
+                            current_audio_data = f.read()
+                        print(f"[LOOP] Captured VAD audio: {len(current_audio_data)} bytes")
+
+                    # STT 处理
+                    state_machine.transition_to(State.PROCESSING, processing_message="语音识别中...")
+                    print(f"[STT] Audio size: {len(current_audio_data)} bytes")
                     
-                    def on_done(data):
-                        print(f"[QA] Done: {data}")
-                        asyncio.run_coroutine_threadsafe(tts_player.flush(), loop)
-                        tts_player.mark_done()  # 标记没有更多内容
+                    loop = main_loop_ref.get("loop")
+                    if not loop:
+                        state_machine.set_error("事件循环未就绪")
+                        break
                     
-                    await mbp_client.ask_question(
-                        text,
-                        on_token=on_token,
-                        on_done=on_done
-                    )
+                    # STT（异步）
+                    async def do_stt():
+                        return await mbp_client.speech_to_text(current_audio_data)
                     
-                    await tts_player.wait_until_done()
-                
-                future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
-                future.result(timeout=120)
-                
-                # 完成
-                state_machine.transition_to(State.DONE)
-                time.sleep(2)
-                state_machine.reset()
-                
-            except Exception as e:
-                print(f"[QA] Error: {e}")
-                state_machine.set_error(str(e)[:20])
+                    future = asyncio.run_coroutine_threadsafe(do_stt(), loop)
+                    try:
+                        text = future.result(timeout=30)
+                    except Exception as e:
+                        print(f"[STT] Timeout or error: {e}")
+                        text = None
+                        
+                    print(f"[STT] Result: {text}")
+                    
+                    if not text:
+                        print("[LOOP] STT empty result, ending conversation")
+                        break
+                    
+                    # 问答（异步）
+                    state_machine.transition_to(State.ANSWERING)
+                    state_machine.set_answer("")
+                    
+                    async def do_qa():
+                        await tts_player.start_playing()
+                        
+                        async def on_token_async(token_text):
+                            state_machine.append_answer(token_text)
+                            await tts_player.add_text(token_text)
+                        
+                        def on_token(token_text):
+                            asyncio.run_coroutine_threadsafe(
+                                on_token_async(token_text), loop
+                            )
+                        
+                        def on_done(data):
+                            print(f"[QA] Done: {data}")
+                            asyncio.run_coroutine_threadsafe(tts_player.flush(), loop)
+                            tts_player.mark_done()  # 标记没有更多内容
+                        
+                        await mbp_client.ask_question(
+                            text,
+                            on_token=on_token,
+                            on_done=on_done
+                        )
+                        
+                        await tts_player.wait_until_done()
+                    
+                    future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
+                    future.result(timeout=120)
+                    
+                    # 本轮完成
+                    state_machine.transition_to(State.DONE)
+                    time.sleep(1.0)
+                    
+                    # 清除数据，准备下一轮
+                    current_audio_data = None
+                    
+                except Exception as e:
+                    print(f"[QA/LOOP] Error: {e}")
+                    state_machine.set_error(str(e)[:20])
+                    break
+            
+            # 循环结束，重置状态
+            state_machine.reset()
         
         threading.Thread(target=do_stt_and_qa_sync, daemon=True).start()
     

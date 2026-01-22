@@ -42,13 +42,16 @@ async def stream_claude_response(
         # 使用 OpenAI SDK 调用 OpenRouter
         from openai import OpenAI
         
+        # 根据是否有上下文选择模型
+        model_name = settings.rag_model if context else settings.chat_model
+        
         client = OpenAI(
             api_key=settings.anthropic_api_key,
             base_url="https://openrouter.ai/api/v1"
         )
         
         response = client.chat.completions.create(
-            model="anthropic/claude-3.5-sonnet",  # OpenRouter 格式
+            model=model_name,  # OpenRouter 格式
             max_tokens=2048,
             messages=[
                 {"role": "system", "content": system_prompt},

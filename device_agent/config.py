@@ -15,7 +15,7 @@ class Config:
     mbp_port: int = 8000
     
     # 硬件配置
-    audio_device: str = "plughw:0,0"
+    audio_device: str = "plughw:1,0"  # WM8960 声卡在 card 1
     button_pin: int = 17
     led_red_pin: int = 5
     led_green_pin: int = 6
@@ -24,6 +24,11 @@ class Config:
     # 录音配置
     record_duration: int = 5
     record_sample_rate: int = 16000
+    
+    # VAD (语音活动检测) 配置
+    vad_threshold: int = 2000      # 静音阈值 (RMS) - 调高以避免底噪
+    vad_max_duration: int = 30     # 最大录音时长（秒）
+    vad_silence_duration: float = 2.0  # 持续沉默停止（秒）
     
     # 临时文件目录
     tmp_dir: str = "/opt/snap2know/tmp"

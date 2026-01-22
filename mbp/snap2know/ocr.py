@@ -189,6 +189,32 @@ async def upload_image(
     image_content = await image.read()
     image_base64 = base64.b64encode(image_content).decode("utf-8")
     
+    # === Debug: 显示图片 (保存并打开) ===
+    if settings.debug:
+        try:
+            import os
+            import subprocess
+            
+            # 保存到 images 目录
+            debug_dir = os.path.join(os.path.dirname(__file__), "images")
+            os.makedirs(debug_dir, exist_ok=True)
+            
+            # 文件名带 session_id 和时间戳
+            filename = f"capture_{session_id}_{int(time.time())}.jpg"
+            debug_path = os.path.join(debug_dir, filename)
+            
+            with open(debug_path, "wb") as f:
+                f.write(image_content)
+            
+            print(f"[DEBUG] Image saved to: {debug_path}")
+            
+            # Mac 上使用 Preview 打开 (后台模式，不抢焦点)
+            subprocess.run(["open", "-g", debug_path])
+            
+        except Exception as e:
+            print(f"[DEBUG] Failed to show image: {e}")
+    # ======================================
+    
     # 执行 OCR
     ocr_text, ocr_provider, fallback_used = await perform_ocr(image_base64, content_type)
     

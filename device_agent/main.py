@@ -532,18 +532,49 @@ def start_voice_conversation(hw: dict, services: dict):
         """VAD 对话循环（在线程中运行）"""
         conversation_control["stop_requested"] = False
         
+    # 会话上下文 (用于判断是否需要重新拍照)
+    session_context = services.get("_session_context", {
+        "last_active_time": 0,
+        "has_photo": False
+    })
+    services["_session_context"] = session_context
+    
+    SESSION_KEEP_ALIVE = 60.0  # 会话保持时间 (秒)
+    
+    def do_vad_conversation():
+        """VAD 对话循环（在线程中运行）"""
+        conversation_control["stop_requested"] = False
+        
         # 用于存储并未完成的图片上传任务
         photo_upload_ctx = {"future": None}
-        is_first_turn = True
+        
+        # 判断是否需要拍照: 
+        # 1. 如果是全新的会话 (超时或无照片)，则拍照
+        # 2. 如果是延续之前的会话 (在 60s 内)，则跳过拍照
+        current_time = time.time()
+        time_since_last = current_time - session_context["last_active_time"]
+        
+        should_take_photo = (time_since_last > SESSION_KEEP_ALIVE) or (not session_context["has_photo"])
+        
+        if should_take_photo:
+            print(f"[SESSION] New session (Gap: {time_since_last:.1f}s). Taking photo...")
+        else:
+            print(f"[SESSION] Continuing session (Gap: {time_since_last:.1f}s). Skipping photo.")
+        
+        # 标记本次循环是否已经拍过照 (避免每轮对话都拍)
+        photo_taken_in_this_loop = False
         
         while True:
+            # 更新活跃时间
+            session_context["last_active_time"] = time.time()
+            
             # 检查是否请求停止
             if conversation_control["stop_requested"]:
                 print("[VOICE] Stop requested")
                 break
             
             try:
-                # === 1. 并行启动：自动拍照 (仅首轮) & VAD 录音 ===
+                # === 1. 并行启动：自动拍照 (按需) & VAD 录音 ===
                 
                 loop = main_loop_ref.get("loop")
                 if not loop:
@@ -551,6 +582,7 @@ def start_voice_conversation(hw: dict, services: dict):
                 
                 # 定义拍照任务
                 def do_auto_photo():
+                    nonlocal photo_taken_in_this_loop
                     try:
                         print("[PHOTO] Auto-capturing...")
                         # 拍照 (同步阻塞)
@@ -578,18 +610,25 @@ def start_voice_conversation(hw: dict, services: dict):
                         future = asyncio.run_coroutine_threadsafe(upload(), loop)
                         photo_upload_ctx["future"] = future
                         
+                        # 更新上下文状态
+                        session_context["has_photo"] = True
+                        photo_taken_in_this_loop = True
+                        
                     except Exception as e:
                         print(f"[PHOTO] Auto-photo error: {e}")
                         photo_upload_ctx["future"] = None
-
-                # 启动拍照线程 (仅在第一轮)
-                if is_first_turn:
+                
+                # 执行拍照 (条件: 需要拍照 且 本次循环还没拍过)
+                # 注意: 如果是"延续会话"进来, should_take_photo=False, 所以第一轮不拍.
+                # 但如果用户语音命令说 "拍一张", 这里的逻辑需要支持...
+                # 我们稍后在 STT 结果里处理"重拍"指令.
+                
+                if should_take_photo and not photo_taken_in_this_loop:
                     photo_upload_ctx["future"] = None
                     photo_thread = threading.Thread(target=do_auto_photo, daemon=True)
                     photo_thread.start()
-                    is_first_turn = False
                 else:
-                    # 非第一轮，不拍照，但要清空 future 以免误判
+                    # 不拍照，清空 future
                     photo_upload_ctx["future"] = None
                 
                 # 同时启动 VAD 录音
@@ -630,6 +669,29 @@ def start_voice_conversation(hw: dict, services: dict):
                 if not text:
                     print("[VOICE] Empty STT result, ending")
                     break
+                
+                # === 检查是否有"拍照"命令 ===
+                if "拍照" in text or "拍一张" in text:
+                    print("[VOICE] 'Retake photo' command detected")
+                    
+                    # 播放反馈提示
+                    async def play_ack():
+                        await tts_player.add_text("好的，正在拍照，请对准...")
+                        await tts_player.flush()
+                        await tts_player.wait_until_done()
+                    
+                    future = asyncio.run_coroutine_threadsafe(play_ack(), loop)
+                    try:
+                        future.result(timeout=5)
+                    except:
+                        pass
+                        
+                    # 强制下一次循环拍照
+                    should_take_photo = True
+                    photo_taken_in_this_loop = False
+                    
+                    # 跳过本次问答，直接进入下一轮 (拍照)
+                    continue
                 
                 # === 3. 等待图片上传完成 (Sync) ===
                 if photo_upload_ctx["future"]:

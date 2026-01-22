@@ -7,17 +7,56 @@ import os
 from typing import Optional
 
 
+def detect_wm8960_device() -> str:
+    """
+    自动检测 WM8960 声卡设备号
+    
+    Returns:
+        ALSA 设备名称，如 "plughw:1,0"
+    """
+    try:
+        # 运行 arecord -l 获取录音设备列表
+        result = subprocess.run(
+            ["arecord", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        # 查找 wm8960 相关行
+        for line in result.stdout.split('\n'):
+            if 'wm8960' in line.lower():
+                # 格式: "card 1: wm8960soundcard [wm8960-soundcard], device 0: ..."
+                if line.startswith('card '):
+                    parts = line.split(':')
+                    if parts:
+                        card_num = parts[0].replace('card ', '').strip()
+                        device = f"plughw:{card_num},0"
+                        print(f"[Audio] Detected WM8960 at {device}")
+                        return device
+        
+        print("[Audio] WM8960 not found, using default plughw:1,0")
+        return "plughw:1,0"
+        
+    except Exception as e:
+        print(f"[Audio] Detection failed: {e}, using default plughw:1,0")
+        return "plughw:1,0"
+
+
 class Audio:
     """音频录制/播放封装类"""
     
-    def __init__(self, device: str = "plughw:0,0"):
+    def __init__(self, device: str = "auto"):
         """
         初始化音频模块
         
         Args:
-            device: ALSA 设备名称
+            device: ALSA 设备名称，"auto" 表示自动检测 WM8960
         """
-        self.device = device
+        if device == "auto":
+            self.device = detect_wm8960_device()
+        else:
+            self.device = device
     
     def record(
         self,

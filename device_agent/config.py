@@ -15,7 +15,7 @@ class Config:
     mbp_port: int = 8000
     
     # 硬件配置
-    audio_device: str = "plughw:1,0"  # WM8960 声卡在 card 1
+    audio_device: str = "auto"  # 自动检测 WM8960 声卡
     button_pin: int = 17
     led_red_pin: int = 5
     led_green_pin: int = 6

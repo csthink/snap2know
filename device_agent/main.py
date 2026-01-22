@@ -516,7 +516,7 @@ def setup_button_gpio(hw: dict, button_handler):
 
 def start_voice_conversation(hw: dict, services: dict):
     """
-    启动语音对话（由唤醒词触发，无需按键）
+    启动语音对话（由唤醒词触发，无感交互：自动拍照 + VAD 录音）
     """
     from services import State
     import threading
@@ -532,6 +532,10 @@ def start_voice_conversation(hw: dict, services: dict):
         """VAD 对话循环（在线程中运行）"""
         conversation_control["stop_requested"] = False
         
+        # 用于存储并未完成的图片上传任务
+        photo_upload_ctx = {"future": None}
+        is_first_turn = True
+        
         while True:
             # 检查是否请求停止
             if conversation_control["stop_requested"]:
@@ -539,9 +543,58 @@ def start_voice_conversation(hw: dict, services: dict):
                 break
             
             try:
-                # VAD 录音
+                # === 1. 并行启动：自动拍照 (仅首轮) & VAD 录音 ===
+                
+                loop = main_loop_ref.get("loop")
+                if not loop:
+                    break
+                
+                # 定义拍照任务
+                def do_auto_photo():
+                    try:
+                        print("[PHOTO] Auto-capturing...")
+                        # 拍照 (同步阻塞)
+                        image_data = hw["camera"].capture_bytes()
+                        print(f"[PHOTO] Captured {len(image_data)} bytes")
+                        
+                        # 显示预览 (LCD)
+                        try:
+                            from PIL import Image
+                            import io
+                            img = Image.open(io.BytesIO(image_data))
+                            img.thumbnail((240, 280), Image.Resampling.LANCZOS)
+                            lcd_img = Image.new("RGB", (240, 280), (0, 0, 0))
+                            x = (240 - img.width) // 2
+                            y = (280 - img.height) // 2
+                            lcd_img.paste(img, (x, y))
+                            hw["lcd"].draw_image(lcd_img)
+                        except Exception as e:
+                            print(f"[PHOTO] Preview error: {e}")
+                        
+                        # 上传 (异步提交给主循环)
+                        async def upload():
+                            return await mbp_client.upload_image(image_data)
+                        
+                        future = asyncio.run_coroutine_threadsafe(upload(), loop)
+                        photo_upload_ctx["future"] = future
+                        
+                    except Exception as e:
+                        print(f"[PHOTO] Auto-photo error: {e}")
+                        photo_upload_ctx["future"] = None
+
+                # 启动拍照线程 (仅在第一轮)
+                if is_first_turn:
+                    photo_upload_ctx["future"] = None
+                    photo_thread = threading.Thread(target=do_auto_photo, daemon=True)
+                    photo_thread.start()
+                    is_first_turn = False
+                else:
+                    # 非第一轮，不拍照，但要清空 future 以免误判
+                    photo_upload_ctx["future"] = None
+                
+                # 同时启动 VAD 录音
                 print("[VOICE] Starting VAD recording...")
-                state_machine.transition_to(State.RECORDING, processing_message="请说话...")
+                state_machine.transition_to(State.RECORDING, processing_message="我在听/看...")
                 
                 vad_path = os.path.join(config.tmp_dir, "wake_vad.wav")
                 has_voice = hw["audio"].record_vad(
@@ -560,18 +613,15 @@ def start_voice_conversation(hw: dict, services: dict):
                     audio_data = f.read()
                 print(f"[VOICE] Captured audio: {len(audio_data)} bytes")
                 
-                # STT
-                state_machine.transition_to(State.PROCESSING, processing_message="语音识别中...")
-                loop = main_loop_ref.get("loop")
-                if not loop:
-                    break
+                # === 2. 语音识别 (STT) ===
+                state_machine.transition_to(State.PROCESSING, processing_message="思考中...")
                 
                 async def do_stt():
                     return await mbp_client.speech_to_text(audio_data)
                 
-                future = asyncio.run_coroutine_threadsafe(do_stt(), loop)
+                stt_future = asyncio.run_coroutine_threadsafe(do_stt(), loop)
                 try:
-                    text = future.result(timeout=30)
+                    text = stt_future.result(timeout=30)
                 except Exception as e:
                     print(f"[VOICE] STT error: {e}")
                     break
@@ -581,7 +631,16 @@ def start_voice_conversation(hw: dict, services: dict):
                     print("[VOICE] Empty STT result, ending")
                     break
                 
-                # QA with TTS
+                # === 3. 等待图片上传完成 (Sync) ===
+                if photo_upload_ctx["future"]:
+                    try:
+                        # STT 已经花了一些时间，图片上传大概率已经完成了
+                        res = photo_upload_ctx["future"].result(timeout=10)
+                        print(f"[PHOTO] Upload completed: {res}")
+                    except Exception as e:
+                        print(f"[PHOTO] Upload waiting failed: {e}")
+                
+                # === 4. 问答 (QA) ===
                 state_machine.transition_to(State.ANSWERING)
                 state_machine.set_answer("")
                 
@@ -611,8 +670,8 @@ def start_voice_conversation(hw: dict, services: dict):
                     await mbp_client.ask_question(text, on_token=on_token, on_done=on_done)
                     await tts_player.wait_until_done()
                 
-                future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
-                future.result(timeout=120)
+                qa_future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
+                qa_future.result(timeout=120)
                 
                 # 退出对话模式
                 if wake_word_detector:
@@ -634,6 +693,8 @@ def start_voice_conversation(hw: dict, services: dict):
                 
             except Exception as e:
                 print(f"[VOICE] Error: {e}")
+                import traceback
+                traceback.print_exc()
                 break
         
         # 恢复
@@ -685,6 +746,9 @@ async def main_loop(hw: dict, services: dict):
     
     # 设置按键 GPIO
     setup_button_gpio(hw, button_handler)
+    
+    # 异步预热相机（避免第一次拍照卡顿）
+    threading.Thread(target=hw["camera"].warmup, daemon=True).start()
     
     # 启动唤醒词检测
     wake_word_detector = services.get("wake_word_detector")

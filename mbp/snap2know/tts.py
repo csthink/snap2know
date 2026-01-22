@@ -13,6 +13,30 @@ from config import settings
 
 router = APIRouter()
 
+import re
+
+def clean_text_for_tts(text: str) -> str:
+    """清理文本以优化 TTS 播报"""
+    # 移除 Markdown 加粗符号 (**text** -> text)
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    
+    # 移除 Markdown 标题符号 (### 标题 -> 标题)
+    text = re.sub(r'#+\s*', '', text)
+    
+    # 移除 Markdown 链接 ([text](url) -> text)
+    text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
+    
+    # 移除图片链接 (![alt](url) -> "")
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    
+    # 将多个换行符替换为单个换行（减少停顿时间）
+    text = re.sub(r'\n+', '\n', text)
+    
+    # 移除其他常见 Markdown 符号
+    text = text.replace('>', '').replace('`', '')
+    
+    return text.strip()
+
 
 class TTSRequest(BaseModel):
     """TTS 请求"""
@@ -97,6 +121,9 @@ async def text_to_speech(request: TTSRequest):
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
+    # 清理文本，优化 TTS 体验
+    text = clean_text_for_tts(text)
     
     # 确定 TTS 模式
     mode = request.mode or settings.tts_mode

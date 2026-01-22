@@ -290,8 +290,9 @@ class Audio:
         try:
             if suffix == ".mp3":
                 # MP3 需要使用 mpg123 或转换
+                # -f 65536 = 200% 音量 (软件放大)
                 subprocess.run(
-                    ["mpg123", "-q", "-a", self.device, temp_path],
+                    ["mpg123", "-q", "-f", "65536", "-a", self.device, temp_path],
                     check=True,
                     capture_output=True
                 )

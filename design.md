@@ -1793,3 +1793,17 @@ cd Snap2Know
 | **状态机** | ✅ 7 状态（含 Busy 子阶段） | 优先级显示 + 800ms 驻留 |
 | **状态协议** | ✅ UIState dataclass | 单一真相源 |
 
+
+## 14. 未来路线图 (Roadmap)
+
+### 全新的端到端语音交互 (Day 15+)
+探索 **Chroma 1.0** (Open Source Real-time E2E Model) 以替代当前的 STT+LLM+TTS 级联架构。
+- **背景**：FlashLabs 发布的 Chroma 1.0 是首个开源 E2E 语音模型，基于 Qwen2.5-Omni。
+- **优势**：
+    - <1s 极低延迟（Real-Time Factor 0.43）
+    - 支持情感和语调的保留与生成
+    - 支持 Few-shot 声音克隆
+- **计划**：
+    - 在 MBP M2 Max 上部署 Chroma 1.0（需 4B+ 显存）。
+    - 验证其 RAG 兼容性（能否插入 Context）。
+    - 评估作为 "情感伴侣" 模式的可行性。

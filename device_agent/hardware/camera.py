@@ -13,6 +13,12 @@ class Camera:
         self._camera = None
         self._initialized = False
     
+    def warmup(self):
+        """预热相机（提前初始化）"""
+        print("[Camera] Warming up...")
+        self._ensure_initialized()
+        print("[Camera] Warmup complete")
+    
     def _ensure_initialized(self):
         """确保相机已初始化"""
         if self._initialized:
@@ -84,6 +90,9 @@ class Camera:
 # 模拟模式（用于非 Pi 环境测试）
 class MockCamera:
     """模拟相机（用于开发测试）"""
+    
+    def warmup(self):
+        print("[MockCamera] Warming up...")
     
     def capture(self, path: str) -> str:
         print(f"[MockCamera] Capturing to {path}")

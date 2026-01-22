@@ -89,12 +89,12 @@ def create_services(hw: dict):
         mbp_client=mbp_client
     )
     
-    # 唤醒词检测器（可选）
+    # 唤醒词检测器（可选，使用独立的 USB 麦克风）
     wake_word_detector = None
     if config.wake_word_enabled:
         wake_word_detector = WakeWordDetector(
             model_path=config.wake_word_model_path,
-            audio_device=config.audio_device,
+            audio_device=config.wake_word_device,  # USB 麦克风
             wake_word=config.wake_word,
             required_count=config.wake_word_count
         )
@@ -156,7 +156,23 @@ def setup_callbacks(hw: dict, services: dict):
     services["_main_loop_ref"] = main_loop_ref
     
     # 停止对话标志（用于中断连续对话循环）
-    conversation_control = {"stop_requested": False}
+    conversation_control = {"stop_requested": False, "new_topic": False}
+    services["_conversation_control"] = conversation_control
+    
+    # 设置语音命令处理
+    wake_word_detector = services.get("wake_word_detector")
+    if wake_word_detector:
+        def on_voice_command(command: str):
+            """处理语音命令"""
+            print(f"[VOICE CMD] Received command: {command}")
+            if command == "stop":
+                conversation_control["stop_requested"] = True
+                tts_player.stop()
+            elif command == "new_topic":
+                conversation_control["new_topic"] = True
+                tts_player.stop()
+        
+        tts_player.set_command_handler(wake_word_detector, on_voice_command)
     
     def on_tap():
         """短按 - 拍照入库 或 停止对话"""
@@ -569,6 +585,14 @@ def start_voice_conversation(hw: dict, services: dict):
                 state_machine.transition_to(State.ANSWERING)
                 state_machine.set_answer("")
                 
+                # 进入对话模式（监听命令词）
+                if wake_word_detector:
+                    def handle_command(cmd):
+                        print(f"[VOICE] Command received: {cmd}")
+                        conversation_control["stop_requested"] = (cmd == "stop")
+                        conversation_control["new_topic"] = (cmd == "new_topic")
+                    wake_word_detector.enter_conversation(handle_command)
+                
                 async def do_qa():
                     await tts_player.start_playing()
                     
@@ -589,6 +613,20 @@ def start_voice_conversation(hw: dict, services: dict):
                 
                 future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
                 future.result(timeout=120)
+                
+                # 退出对话模式
+                if wake_word_detector:
+                    wake_word_detector.exit_conversation()
+                
+                # 检查是否有命令
+                if conversation_control.get("stop_requested"):
+                    print("[VOICE] Stop command received")
+                    break
+                
+                if conversation_control.get("new_topic"):
+                    print("[VOICE] New topic requested")
+                    conversation_control["new_topic"] = False
+                    # 继续下一轮（不break）
                 
                 # 短暂等待再继续下一轮
                 state_machine.transition_to(State.DONE)

@@ -1674,12 +1674,16 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 
 #### Day 10：稳定性 + 边界情况 ✅
 
+> 详细步骤参见 [Day10-稳定性+边界情况.md](docs/Day10/Day-10-稳定性-边界情况.md)
+
 **交付（2026-01-22）**
 - 混合模式：无文档时支持闲聊，有文档时基于文档回答
 - VAD 连续对话：AI 回答后自动进入录音模式，静音 2 秒后自动发送
 - 短按停止对话：在录音/回答中短按可立即停止
 - WM8960 音频设备自动检测：启动时自动识别声卡编号
 - 菜单长按时间调整：5s → 30s，支持更长录音
+- **唤醒词功能**："小帮，小帮" 语音唤醒（Vosk + USB 麦克风）
+- **语音命令**：对话中说 "小帮，暂停" 可立即停止
 
 **API 集成优化**
 - LLM/OCR：OpenRouter API (Claude 3.5 Sonnet)
@@ -1692,6 +1696,8 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 - [x] 音频设备自动检测（Pi 重启后仍可识别）
 - [x] 混合模式切换正常
 - [x] 拍照后长按问答正常
+- [x] 唤醒词 "小帮，小帮" 触发对话
+- [x] 语音命令 "小帮，暂停" 停止播放
 
 ---
 

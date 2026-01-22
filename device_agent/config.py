@@ -35,6 +35,7 @@ class Config:
     wake_word: str = "小帮"
     wake_word_count: int = 2       # 需要检测到几次（"小帮，小帮" = 2次）
     wake_word_model_path: str = "/opt/snap2know/vosk-model-small-cn-0.22"
+    wake_word_device: str = "plughw:2,0"  # USB 麦克风用于唤醒词检测
     
     # 临时文件目录
     tmp_dir: str = "/opt/snap2know/tmp"

@@ -53,6 +53,10 @@ class WakeWordDetector:
         self._process: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
         
+        # 对话模式（对话期间检测命令词）
+        self._in_conversation = False
+        self._on_command: Optional[Callable[[str], None]] = None
+        
         # 检测状态
         self._detections: list = []
     
@@ -124,8 +128,29 @@ class WakeWordDetector:
     def resume(self):
         """恢复检测"""
         self._active = True
+        self._in_conversation = False
         self._detections.clear()
         print("[WakeWord] Resumed")
+    
+    def enter_conversation(self, on_command: Callable[[str], None]):
+        """
+        进入对话模式（保持监听，但切换到命令检测）
+        
+        Args:
+            on_command: 命令回调 ("stop" 或 "new_topic")
+        """
+        self._in_conversation = True
+        self._on_command = on_command
+        self._active = True  # 保持监听
+        self._detections.clear()
+        print("[WakeWord] Entered conversation mode (listening for commands)")
+    
+    def exit_conversation(self):
+        """退出对话模式"""
+        self._in_conversation = False
+        self._on_command = None
+        self._detections.clear()
+        print("[WakeWord] Exited conversation mode")
     
     def _stop_recording(self):
         """停止 arecord 进程"""
@@ -211,9 +236,37 @@ class WakeWordDetector:
         
         print("[WakeWord] Listen loop ended")
     
+    # 唤醒词变体（Vosk 常见误识别）
+    WAKE_WORD_VARIANTS = [
+        "小帮", "小芳", "少帮", "小胖", "晓帮", "小棒", "小邦",
+        "小 帮", "少 帮", "小 芳"  # 带空格的变体
+    ]
+    
+    def _contains_wake_word(self, text: str) -> bool:
+        """检查文本是否包含唤醒词（含变体）"""
+        for variant in self.WAKE_WORD_VARIANTS:
+            if variant in text:
+                return True
+        return self.wake_word in text
+    
     def _process_text(self, text: str):
         """处理识别到的文本"""
-        if self.wake_word in text:
+        # 调试日志
+        if self._in_conversation:
+            print(f"[WakeWord] [CONV] Heard: '{text}'")
+        
+        # 检查命令词（对话期间优先）
+        if self._in_conversation and self._on_command:
+            # 对话期间：检测 "小帮 + 命令词"（含变体）
+            if self._contains_wake_word(text):
+                command = self.detect_command(text)
+                if command:
+                    print(f"[WakeWord] Command detected during conversation: {command}")
+                    self._on_command(command)
+                    return
+        
+        # 正常唤醒词检测
+        if self._contains_wake_word(text):
             count = text.count(self.wake_word)
             now = time.time()
             
@@ -233,6 +286,89 @@ class WakeWordDetector:
                     # 暂停检测（释放麦克风）
                     self.pause()
                     self.on_wake()
+    
+    def quick_listen(self, duration: float = 1.0) -> Optional[str]:
+        """
+        快速监听一段时间，用于检测命令词
+        
+        Args:
+            duration: 监听时长（秒）
+        
+        Returns:
+            识别到的文本，或 None
+        """
+        if not VOSK_AVAILABLE or not self._model:
+            return None
+        
+        # 解析设备
+        device = self.audio_device
+        if device == "auto":
+            device = self._detect_audio_device()
+        
+        cmd = [
+            "arecord",
+            "-D", device,
+            "-f", "S16_LE",
+            "-r", "16000",
+            "-c", "1",
+            "-d", str(int(duration + 0.5)),  # 录音时长
+            "-t", "raw",
+            "-q",
+            "-"
+        ]
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=duration + 2
+            )
+            
+            if result.returncode != 0:
+                return None
+            
+            audio_data = result.stdout
+            if not audio_data:
+                return None
+            
+            recognizer = KaldiRecognizer(self._model, 16000)
+            recognizer.AcceptWaveform(audio_data)
+            final = json.loads(recognizer.FinalResult())
+            text = final.get("text", "")
+            
+            if text:
+                print(f"[WakeWord] Quick listen result: {text}")
+            return text if text else None
+            
+        except Exception as e:
+            print(f"[WakeWord] Quick listen error: {e}")
+            return None
+    
+    def detect_command(self, text: str) -> Optional[str]:
+        """
+        检测文本中的命令词
+        
+        Returns:
+            "stop" - 暂停/停止
+            "new_topic" - 换话题
+            None - 无命令
+        """
+        if not text:
+            return None
+        
+        # 停止命令
+        stop_words = ["暂停", "停止", "够了", "停", "别说了"]
+        for word in stop_words:
+            if word in text:
+                return "stop"
+        
+        # 换话题命令
+        topic_words = ["换个话题", "换话题", "说别的", "下一个"]
+        for word in topic_words:
+            if word in text:
+                return "new_topic"
+        
+        return None
 
 
 # 测试代码

@@ -5,7 +5,7 @@ TTS 分段播报器（缓冲 → 分句 → TTS → 播放队列）
 import asyncio
 import tempfile
 import os
-from typing import Optional
+from typing import Optional, Callable
 from dataclasses import dataclass
 
 
@@ -45,8 +45,17 @@ class TTSPlayer:
         self._pending_requests = 0   # 待处理的 TTS 请求数
         self._play_task: Optional[asyncio.Task] = None
         
+        # 语音命令控制
+        self._wake_word_detector = None  # 唤醒词检测器引用
+        self._on_command: Optional[Callable[[str], None]] = None  # 命令回调
+        
         # 音频模块（延迟导入）
         self._audio = None
+    
+    def set_command_handler(self, wake_word_detector, on_command: Callable[[str], None]):
+        """设置语音命令处理"""
+        self._wake_word_detector = wake_word_detector
+        self._on_command = on_command
     
     def _get_audio(self):
         """获取音频模块"""
@@ -193,6 +202,25 @@ class TTSPlayer:
                 else:
                     print(f"[TTS] Muted, skipping: {chunk.text[:20]}...")
                 
+                # 检测语音命令（播放后短暂监听）
+                if self._wake_word_detector and self._on_command:
+                    try:
+                        loop = asyncio.get_event_loop()
+                        text = await loop.run_in_executor(
+                            None,
+                            lambda: self._wake_word_detector.quick_listen(0.8)
+                        )
+                        if text:
+                            command = self._wake_word_detector.detect_command(text)
+                            if command:
+                                print(f"[TTS] Voice command detected: {command}")
+                                self._on_command(command)
+                                if command == "stop":
+                                    self._should_stop = True
+                                    break
+                    except Exception as e:
+                        pass  # 忽略命令检测错误
+                
             except Exception as e:
                 print(f"[TTS] Play error: {e}")
                 import traceback
@@ -248,6 +276,13 @@ class TTSPlayer:
                 self._queue.get_nowait()
             except:
                 pass
+        
+        # 立即停止当前播放（杀掉 mpg123 进程）
+        try:
+            import subprocess
+            subprocess.run(["pkill", "-9", "mpg123"], capture_output=True)
+        except:
+            pass
     
     @property
     def is_playing(self) -> bool:

@@ -74,7 +74,7 @@ def setup_directories():
 
 def create_services(hw: dict):
     """创建服务实例"""
-    from services import StateMachine, ButtonHandler, LCDRenderer, MBPClient, TTSPlayer
+    from services import StateMachine, ButtonHandler, LCDRenderer, MBPClient, TTSPlayer, WakeWordDetector
     
     state_machine = StateMachine()
     button_handler = ButtonHandler()
@@ -89,12 +89,23 @@ def create_services(hw: dict):
         mbp_client=mbp_client
     )
     
+    # 唤醒词检测器（可选）
+    wake_word_detector = None
+    if config.wake_word_enabled:
+        wake_word_detector = WakeWordDetector(
+            model_path=config.wake_word_model_path,
+            audio_device=config.audio_device,
+            wake_word=config.wake_word,
+            required_count=config.wake_word_count
+        )
+    
     return {
         "state_machine": state_machine,
         "button_handler": button_handler,
         "lcd_renderer": lcd_renderer,
         "mbp_client": mbp_client,
-        "tts_player": tts_player
+        "tts_player": tts_player,
+        "wake_word_detector": wake_word_detector
     }
 
 
@@ -487,6 +498,115 @@ def setup_button_gpio(hw: dict, button_handler):
         print(f"[BUTTON] GPIO setup failed: {e}")
 
 
+def start_voice_conversation(hw: dict, services: dict):
+    """
+    启动语音对话（由唤醒词触发，无需按键）
+    """
+    from services import State
+    import threading
+    
+    state_machine = services["state_machine"]
+    mbp_client = services["mbp_client"]
+    tts_player = services["tts_player"]
+    wake_word_detector = services.get("wake_word_detector")
+    main_loop_ref = services.get("_main_loop_ref", {})
+    conversation_control = services.get("_conversation_control", {"stop_requested": False})
+    
+    def do_vad_conversation():
+        """VAD 对话循环（在线程中运行）"""
+        conversation_control["stop_requested"] = False
+        
+        while True:
+            # 检查是否请求停止
+            if conversation_control["stop_requested"]:
+                print("[VOICE] Stop requested")
+                break
+            
+            try:
+                # VAD 录音
+                print("[VOICE] Starting VAD recording...")
+                state_machine.transition_to(State.RECORDING, processing_message="请说话...")
+                
+                vad_path = os.path.join(config.tmp_dir, "wake_vad.wav")
+                has_voice = hw["audio"].record_vad(
+                    vad_path,
+                    max_duration=config.vad_max_duration,
+                    silence_threshold=config.vad_threshold,
+                    silence_duration=config.vad_silence_duration,
+                    sample_rate=config.record_sample_rate
+                )
+                
+                if not has_voice:
+                    print("[VOICE] No voice detected, ending")
+                    break
+                
+                with open(vad_path, "rb") as f:
+                    audio_data = f.read()
+                print(f"[VOICE] Captured audio: {len(audio_data)} bytes")
+                
+                # STT
+                state_machine.transition_to(State.PROCESSING, processing_message="语音识别中...")
+                loop = main_loop_ref.get("loop")
+                if not loop:
+                    break
+                
+                async def do_stt():
+                    return await mbp_client.speech_to_text(audio_data)
+                
+                future = asyncio.run_coroutine_threadsafe(do_stt(), loop)
+                try:
+                    text = future.result(timeout=30)
+                except Exception as e:
+                    print(f"[VOICE] STT error: {e}")
+                    break
+                
+                print(f"[VOICE] STT result: {text}")
+                if not text:
+                    print("[VOICE] Empty STT result, ending")
+                    break
+                
+                # QA with TTS
+                state_machine.transition_to(State.ANSWERING)
+                state_machine.set_answer("")
+                
+                async def do_qa():
+                    await tts_player.start_playing()
+                    
+                    async def on_token_async(token_text):
+                        state_machine.append_answer(token_text)
+                        await tts_player.add_text(token_text)
+                    
+                    def on_token(token_text):
+                        asyncio.run_coroutine_threadsafe(on_token_async(token_text), loop)
+                    
+                    def on_done(data):
+                        print(f"[VOICE] QA done")
+                        asyncio.run_coroutine_threadsafe(tts_player.flush(), loop)
+                        tts_player.mark_done()
+                    
+                    await mbp_client.ask_question(text, on_token=on_token, on_done=on_done)
+                    await tts_player.wait_until_done()
+                
+                future = asyncio.run_coroutine_threadsafe(do_qa(), loop)
+                future.result(timeout=120)
+                
+                # 短暂等待再继续下一轮
+                state_machine.transition_to(State.DONE)
+                time.sleep(0.5)
+                
+            except Exception as e:
+                print(f"[VOICE] Error: {e}")
+                break
+        
+        # 恢复
+        state_machine.reset()
+        if wake_word_detector:
+            wake_word_detector.resume()
+    
+    # 在新线程中运行
+    threading.Thread(target=do_vad_conversation, daemon=True).start()
+
+
 async def init_mbp_connection(services: dict):
     """初始化 MBP 连接"""
     mbp_client = services["mbp_client"]
@@ -528,12 +648,35 @@ async def main_loop(hw: dict, services: dict):
     # 设置按键 GPIO
     setup_button_gpio(hw, button_handler)
     
+    # 启动唤醒词检测
+    wake_word_detector = services.get("wake_word_detector")
+    if wake_word_detector:
+        def on_wake_word():
+            """唤醒词触发回调"""
+            print("[WAKE] Wake word detected!")
+            # 只在 IDLE 状态响应唤醒词
+            if state_machine.state == State.IDLE:
+                # 播放提示音（可选）
+                # TODO: Play beep sound
+                
+                # 直接启动 VAD 对话循环
+                print("[WAKE] Starting voice conversation...")
+                start_voice_conversation(hw, services)
+        
+        wake_word_detector.on_wake = on_wake_word
+        wake_word_detector.start()
+        print(f"[WAKE] Listening for wake word: '{config.wake_word}' x{config.wake_word_count}")
+    
     # 主循环
     try:
         while True:
             await asyncio.sleep(0.1)
     except asyncio.CancelledError:
         print("[INFO] Main loop cancelled")
+    finally:
+        # 停止唤醒词检测
+        if wake_word_detector:
+            wake_word_detector.stop()
 
 
 async def cleanup_async(services: dict):

@@ -30,6 +30,12 @@ class Config:
     vad_max_duration: int = 30     # 最大录音时长（秒）
     vad_silence_duration: float = 2.0  # 持续沉默停止（秒）
     
+    # 唤醒词配置
+    wake_word_enabled: bool = True
+    wake_word: str = "小帮"
+    wake_word_count: int = 2       # 需要检测到几次（"小帮，小帮" = 2次）
+    wake_word_model_path: str = "/opt/snap2know/vosk-model-small-cn-0.22"
+    
     # 临时文件目录
     tmp_dir: str = "/opt/snap2know/tmp"
     

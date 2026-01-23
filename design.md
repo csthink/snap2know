@@ -1717,18 +1717,22 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 
 ---
 
-#### Day 12：文档 + 一键启动
+#### Day 12：文档 + 一键启动 (✅ 已完成)
 
 **交付**
-- 项目交接文档 (Handover Docs)
-- 一键启动脚本 (One-Key Start Script)
-- 系统与故障排查指南
+- [x] 项目交接文档 (README.md 重构)
+- [x] 一键启动脚本 (`start_agent.sh`, `snap2know.service`)
+- [x] 故障排查指南 (Troubleshooting FAQ)
+- [x] **优化**: 动态声卡检测 (WM8960 / USB 麦克风)
+- [x] **修复**: 会话上下文持久化 (60s 内追问不重拍)
 
 **验收**
 ```bash
-# 在 Pi 上一键启动所有服务 (后端 + Agent)
-cd /opt/snap2know
-./start_all.sh
+# Pi 端一键启动
+cd /opt/snap2know/device_agent
+./start_agent.sh
+# 或使用 systemd 开机自启
+sudo systemctl enable snap2know
 ```
 
 ---

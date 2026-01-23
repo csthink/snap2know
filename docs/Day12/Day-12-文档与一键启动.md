@@ -1,42 +1,74 @@
-# Day 12：文档完善与一键启动
+# Day 12：文档完善与一键启动 ✅ 已完成
 
 ## 📅 目标
-本阶段将系统从"开发模式"转变为"准生产模式"，确保系统能够方便地启动、运行，并具备完善的文档支持。
-
-## 📦 1. 一键启动 (One-Key Start)
-
-目前的启动方式依然较为分散 (Pi 端手动 python main.py, MBP 端 manual start)。我们将创建一个统一的启动脚本。
-
-### 1.1 Pi 端服务化
-- 创建 `start_agent.sh`：自动激活 venv 并运行 `main.py`
-- (可选) 创建 Systemd 服务文件 `snap2know.service`，实现开机自启。
-
-### 1.2 MBP 后端启动
-- 现有的 `start_server.sh` 已经不错，但可以增加后台运行模式。
-
-## 📝 2. 文档体系 (Documentation)
-
-### 2.1 README.md 重构
-当前的 README 可能还停留在项目初期。需要更新为最终交付版本：
-- **项目简介**：Wake-to-Photo 核心特性介绍
-- **硬件清单**：Raspberry Pi 5 + IMX500 + Whisplay HAT
-- **快速开始**：如何部署 Backend 和 Agent
-- **操作指南**：Hello World, 交互流程 (唤醒 -> 拍照 -> 问答)
-
-### 2.2 故障排查 (Troubleshooting)
-基于这两天的调试经验，整理 FAQ：
-- 摄像头模糊？(定焦问题)
-- 唤醒不灵敏？(麦克风增益)
-- 报错 500？(Backend 连接问题)
-
-## ✅ 验收标准
-1. **启动测试**：在 Pi 上执行 `./start_agent.sh` 即可进入工作状态。
-2. **文档完整**：新人阅读 README.md 能够理解系统架构并完成部署。
+将系统从"开发模式"转变为"准生产模式"，确保系统能够方便地启动、运行，并具备完善的文档支持。
 
 ---
 
-## 🛠️ 下一步行动 (Action Plan)
+## ✅ 完成项目
 
-1. **Pi 端脚本**：编写 `device_agent/start_agent.sh` 并同步。
-2. **README 更新**：重写根目录 `README.md`。
-3. **验证**：模拟用户操作，从零启动系统。
+### 1. 一键启动脚本
+
+| 文件 | 用途 | 位置 |
+|------|------|------|
+| `start_agent.sh` | Pi 端一键启动 | `device_agent/start_agent.sh` |
+| `snap2know.service` | Systemd 服务 (开机自启) | `device_agent/snap2know.service` |
+
+**使用方法**:
+```bash
+# 一键启动
+cd /opt/snap2know/device_agent
+./start_agent.sh
+
+# 或使用 systemd
+sudo cp snap2know.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable snap2know
+sudo systemctl start snap2know
+```
+
+### 2. README 重构
+- 新增 **核心特性** 介绍 (Wake-to-Photo, 智能会话)
+- 新增 **快速开始** 指南 (一键启动、systemd 配置)
+- 新增 **故障排查** FAQ (摄像头模糊、唤醒不灵、连接问题)
+- 更新了系统架构图和项目结构
+
+### 3. 代码优化
+
+#### 动态声卡检测
+修改 `config.py`，添加 `detect_audio_devices()` 函数：
+- 自动执行 `arecord -l` 解析输出
+- 动态检测 WM8960 和 USB 麦克风的 card 号
+- 避免硬编码导致的设备号不匹配问题
+
+#### 会话上下文持久化
+修复 `main.py` 中的代码结构问题：
+- 移除重复的函数定义
+- 确保 `session_context` 正确保存在 `services` 字典中
+- 60秒内追问不再重复拍照
+
+---
+
+## 📋 验收结果
+
+| 测试项 | 状态 |
+|--------|------|
+| `./start_agent.sh` 正常启动 | ✅ |
+| 声卡自动检测 | ✅ |
+| Wake-to-Photo 工作流 | ✅ |
+| 60s 会话保持 (不重拍) | ✅ |
+| 短按中断后追问 | ✅ |
+
+---
+
+## � 新增/修改的文件
+
+```
+device_agent/
+├── start_agent.sh      # [NEW] 一键启动脚本
+├── snap2know.service   # [NEW] Systemd 服务文件
+├── config.py           # [MOD] 添加动态声卡检测
+└── main.py             # [MOD] 修复会话上下文持久化
+
+README.md               # [MOD] 完整重构
+```

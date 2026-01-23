@@ -528,11 +528,7 @@ def start_voice_conversation(hw: dict, services: dict):
     main_loop_ref = services.get("_main_loop_ref", {})
     conversation_control = services.get("_conversation_control", {"stop_requested": False})
     
-    def do_vad_conversation():
-        """VAD 对话循环（在线程中运行）"""
-        conversation_control["stop_requested"] = False
-        
-    # 会话上下文 (用于判断是否需要重新拍照)
+    # 会话上下文 (用于判断是否需要重新拍照) - 持久化在 services 中
     session_context = services.get("_session_context", {
         "last_active_time": 0,
         "has_photo": False
@@ -557,7 +553,7 @@ def start_voice_conversation(hw: dict, services: dict):
         should_take_photo = (time_since_last > SESSION_KEEP_ALIVE) or (not session_context["has_photo"])
         
         if should_take_photo:
-            print(f"[SESSION] New session (Gap: {time_since_last:.1f}s). Taking photo...")
+            print(f"[SESSION] New session (Gap: {time_since_last:.1f}s, hasPhoto: {session_context['has_photo']}). Taking photo...")
         else:
             print(f"[SESSION] Continuing session (Gap: {time_since_last:.1f}s). Skipping photo.")
         

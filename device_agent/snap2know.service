@@ -1,0 +1,21 @@
+[Unit]
+Description=Snap2Know Device Agent
+After=network.target
+
+[Service]
+Type=simple
+User=mars
+Group=mars
+WorkingDirectory=/opt/snap2know/device_agent
+ExecStart=/opt/snap2know/.venv/bin/python -u main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment="DISPLAY=:0"
+Environment="HOME=/home/mars"
+
+[Install]
+WantedBy=multi-user.target

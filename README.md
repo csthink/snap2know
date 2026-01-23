@@ -1,35 +1,82 @@
 # Snap2Know
 
-
 ## 项目简介
 
 **Snap2Know** 是一个基于树莓派的智能问答设备，通过拍照识别说明书内容，语音提问获取操作指导。
 **Snap2Know** 不仅仅是一个硬件 Demo，它是一个典型的端到端 AIoT（AI + IoT）全栈项目。
 
-### 演示场景
-拍摄路由器说明书 → 语音提问"如何登录管理后台" → 获得步骤化回答 + 语音播报
+### ✨ 核心特性
+- **Wake-to-Photo**：唤醒即拍，无需手动按键
+- **智能会话**：60秒内追问不重拍照
+- **流式语音**：边生成边播报，响应更快
+
+### 🎬 演示场景
+```
+唤醒 "小帮小帮" → 自动拍摄路由器说明书 → 
+语音提问 "如何登录管理后台" → 获得步骤化回答 + 语音播报
+```
 
 ---
 
-## 硬件设备
+## 硬件清单
 
 | 设备 | 规格 | 用途 |
 |------|------|------|
 | **Raspberry Pi 5** | 16GB RAM, 64GB TF | 控制面：Device Agent |
 | **Whisplay HAT** | 240×280 LCD, WM8960, 双麦克风, 扬声器, LED, 按键 | 显示/音频/交互 |
-| **Pi AI Camera** | 官方 AI 摄像头 Sony IMX500智能视觉传感器 1200w像素,支持手动调焦 | 拍照 |
+| **Pi AI Camera** | Sony IMX500 1200万像素 | 拍照 (定焦，30-50cm 最佳) |
 | **Pi Active Cooler** | 官方主动散热器 | 防止过热 |
-| **Pi 官方电源** | 官方45W USB-C 电源，官方原装 PD 5.1V/5A 电源线 | 供电 |
+| **Pi 官方电源** | 45W USB-C PD | 供电 |
 | **MacBook Pro M2 Max** | 96GB RAM | 数据面：后端服务 |
 
-> Pi 5 和 MBP 在同一局域网内
+> Pi 5 和 MBP 需在同一局域网内
 
-### Whisplay HAT 规格
+---
 
-- **屏幕**: 1.69" IPS LCD, 240×280, SPI 直驱 (ST7789P3)
-- **音频**: WM8960 编解码, 双麦克风, 8Ω1W 扬声器
-- **交互**: 单个可编程按键, RGB LED
-- **驱动**: [官方文档](https://docs.pisugar.com/docs/product-wiki/whisplay/overview)
+## 🚀 快速开始
+
+### 1. MBP 后端
+
+```bash
+# 1. 启动 Qdrant 向量数据库
+cd mbp/
+docker-compose up -d
+
+# 2. 配置环境变量
+cd snap2know/
+cp .env.example .env
+# 编辑 .env，填入 API Keys
+
+# 3. 启动后端服务
+./start_server.sh
+```
+
+### 2. Pi 设备端
+
+```bash
+# 方式一：一键启动 (推荐)
+cd /opt/snap2know/device_agent
+./start_agent.sh
+
+# 方式二：手动启动
+cd /opt/snap2know
+source .venv/bin/activate
+python device_agent/main.py
+```
+
+### 3. 开机自启 (可选)
+
+```bash
+# 安装 systemd 服务
+sudo cp /opt/snap2know/device_agent/snap2know.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable snap2know
+sudo systemctl start snap2know
+
+# 查看状态
+sudo systemctl status snap2know
+sudo journalctl -u snap2know -f
+```
 
 ---
 
@@ -40,131 +87,48 @@
 │  Pi 5 - Device Agent（Python 单进程）                             │
 │                                                                  │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │ UI Renderer │  │Input Handler│  │State Machine│              │
-│  │ (LCD 渲染)  │  │ (按键识别)  │  │  (状态机)   │              │
-│  │ PIL/Pillow  │  │短按/长按/超长按│  │ 7 状态+Busy │              │
+│  │ Wake Word   │  │   Camera    │  │State Machine│              │
+│  │ (Vosk 唤醒) │  │  (IMX500)   │  │  (状态机)   │              │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
 │         │                │                │                      │
 │         └────────────────┴────────────────┘                      │
 │                          ↓                                       │
-│                    ┌─────────────┐                               │
-│                    │   UIState   │  ← 单一真相源                  │
-│                    └─────────────┘                               │
-│                          ↓                                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │Backend Client│ │Audio Pipeline│ │ LED Control │              │
-│  │ HTTP/WS→MBP │  │录音/TTS/播放 │  │  RGB 状态   │              │
-│  └─────────────┘  └─────────────┘  └─────────────┘              │
+│                    Wake-to-Photo                                 │
+│           (唤醒 → 自动拍照 → VAD录音 → 问答)                      │
 └──────────────────────────────────────────────────────────────────┘
                           ↓ HTTP/WS (局域网)
 ┌──────────────────────────────────────────────────────────────────┐
 │  MBP - FastAPI 后端                                              │
 │  ├── 会话管理 (/session)                                         │
-│  ├── STT (OpenAI Whisper)                                        │
-│  ├── OCR (Claude Sonnet Vision（主）/ GPT-4o（备选）)                  │
-│  ├── Embedding (OpenAI)                                          │
-│  ├── 问答 (Claude Sonnet + RAG)                                  │
-│  ├── TTS (/tts 可选，本地 edge-tts 为默认)                          │
-│  └── 向量库 (Qdrant Docker)                                      │
+│  ├── STT (Groq Whisper / 本地 Faster-Whisper)                   │
+│  ├── OCR (Claude Sonnet → GPT-4o fallback)                     │
+│  ├── Embedding (OpenAI text-embedding-3-small)                  │
+│  ├── 问答 (Claude Sonnet + RAG)                                 │
+│  ├── TTS (edge-tts)                                            │
+│  └── 向量库 (Qdrant Docker)                                     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### 设计要点
-
-- **Pi 端**: 纯 Python 单进程直绘 LCD（不使用浏览器，SPI 直驱）
-- **UI 渲染**: PIL/Pillow + Whisplay 驱动，事件驱动刷新（10-15 FPS）
-- **按键交互**: 单键 Push-to-Talk（短按拍照、长按录音、超长按3s菜单）
-- **TTS**: edge-tts（默认）/ espeak-ng（降级）/ 云端 OpenAI TTS（TTS_MODE=cloud）
-
 ---
 
-## 交互设计
+## 交互流程
 
-### 单键 Push-to-Talk
+### 语音唤醒模式 (默认)
+
+| 步骤 | 操作 | 响应 |
+|------|------|------|
+| 1 | 说 "小帮，小帮" | 自动拍照 + 开始聆听 |
+| 2 | 提问 | STT → RAG → 流式回答 |
+| 3 | 追问 (60s内) | 继续聆听 (不重拍) |
+| 4 | 说 "拍一张" | 重新拍照 |
+
+### 按键模式
 
 | 状态 | 操作 | 功能 |
 |------|------|------|
 | 待机 | 短按 | 拍照 → OCR 入库 |
-| 待机 | 长按（按住） | 开始录音 |
-| 录音中 | 松开 | 结束录音 → STT → 问答 |
-| 回答中 | 短按 | 静音/恢复 |
 | 回答中 | 长按 1.2s | 停止播报 |
 | 待机 | 超长按 ≥3s | 进入清库确认 |
-
-### LCD 状态显示 (240×280)
-
-```
-┌────────────────────────┐
-│ ● Snap2Know     12:30  │  ← 状态栏 (20px)
-├────────────────────────┤
-│                        │
-│         📷            │
-│   [状态图标/缩略图]    │  ← 主区域 (180px)
-│                        │
-│   "按住说话..."        │
-│                        │
-├────────────────────────┤
-│ 待机                   │  ← 底部状态 (40px)
-│ 会话: 3张              │
-└────────────────────────┘
-```
-
----
-
-## 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| **Pi 端** | Python, PIL/Pillow, picamera2, arecord/aplay, edge-tts, espeak-ng, Whisplay Driver |
-| **MBP 后端** | Python, FastAPI, Qdrant, httpx, websockets |
-| **AI 服务** | OpenAI (STT/TTS/Embedding), Anthropic Claude (OCR/LLM) |
-| **部署** | Docker (Qdrant), systemd (Device Agent) |
-
----
-
-## 快速开始
-
-### 1. MBP 端
-
-```bash
-# 启动 Qdrant
-cd mbp/
-docker-compose up -d
-
-# 配置环境变量
-export OPENAI_API_KEY=sk-xxx
-export ANTHROPIC_API_KEY=sk-ant-xxx
-
-# 启动后端
-cd snap2know/
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-### 2. Pi 端
-
-> 详细步骤参见 [docs/Day0](./docs/Day0/) 目录
-
-```bash
-# 1. 安装 Whisplay 驱动
-git clone https://github.com/PiSugar/Whisplay.git /opt/src/Whisplay
-cd /opt/src/Whisplay/Driver && sudo bash install_wm8960_drive.sh
-sudo reboot
-
-# 2. 安装 IMX500 摄像头驱动（耗时 30-40 分钟）
-sudo apt install -y imx500-all
-sudo reboot
-
-# 3. 安装系统依赖
-sudo apt install -y python3-picamera2 libcamera-apps espeak-ng ffmpeg alsa-utils
-
-# 4. 安装 Python 依赖
-pip install edge-tts httpx websockets pillow qdrant-client --break-system-packages
-
-# 5. 启动 Device Agent
-cd device_agent/
-export MBP_HOST=192.168.x.x:8000  # 替换为 MBP 的 IP
-python main.py
-```
 
 ---
 
@@ -172,72 +136,70 @@ python main.py
 
 ```
 Snap2Know/
-├── README.md              # 本文件
-├── Design.md              # 详细设计文档
-├── docs/                  # 学习与规划文档
-│   ├── Day0/              # Day 0 硬件准备文档
-│   ├── Day1/              # Day 1 MBP 基础设施文档
-│   ├── learning_path.md   # 学习路径与技术栈总结
-│   └── two_week_roadmap.md # 两周开发学习地图
-├── mbp/                   # MBP 后端
-│   ├── docker-compose.yml # Qdrant 部署
-│   └── snap2know/         # FastAPI 源码
+├── README.md                 # 本文件
+├── design.md                 # 详细设计文档
+├── docs/                     # 开发文档
+│   ├── Day0/                 # 硬件准备
+│   ├── Day1-13/              # 开发日志
+│   └── camera-debug-guide.md # 摄像头调试指南
+├── mbp/                      # MBP 后端
+│   ├── docker-compose.yml    # Qdrant 部署
+│   └── snap2know/            # FastAPI 源码
 │       ├── main.py
-│       ├── session.py
-│       ├── stt.py
-│       ├── ocr.py
-│       ├── embedding.py
-│       ├── qa.py
-│       └── tts.py
-└── pi/                    # Pi 端
-    ├── device_agent/      # Device Agent 源码
-    │   ├── main.py
-    │   ├── state_machine.py
-    │   ├── ui_renderer.py
-    │   ├── input_handler.py
-    │   ├── backend_client.py
-    │   ├── audio_pipeline.py
-    │   └── hardware/
-    └── assets/            # 图标 + 字体
+│       ├── stt.py / tts.py
+│       ├── ocr.py / rag.py
+│       └── ...
+└── device_agent/             # Pi 端
+    ├── main.py               # 入口
+    ├── start_agent.sh        # 一键启动脚本
+    ├── snap2know.service     # Systemd 服务
+    ├── hardware/             # 硬件封装
+    ├── services/             # 业务服务
+    └── tools/                # 调试工具
+        ├── camera_stream.py  # 浏览器实时预览
+        └── camera_focus_test.py
 ```
 
 ---
 
-## 两周开发计划
+## 故障排查 (Troubleshooting)
 
-### Day 0：硬件准备（前置工作）
+### 📷 摄像头模糊
+IMX500 是**定焦镜头**，无自动对焦。请调整设备到文档的距离 (30-50cm)。
 
-| 步骤 | 任务 | 详细文档 |
-|------|------|----------|
-| 0.1 | Pi OS 安装 | [Day-0.1-Pi 操作系统安装.md](./docs/Day0/Day-0.1-Pi%20操作系统安装.md) |
-| 0.2 | Whisplay 驱动 | [Day-0.2-Whisplay驱动安装.md](./docs/Day0/Day-0.2-Whisplay驱动安装.md) |
-| 0.3 | 摄像头驱动 | [Day-0.3-摄像头驱动安装.md](./docs/Day0/Day-0.3-摄像头驱动安装.md) |
-| 0.4 | 最小硬件验收 | [Day-0.4-最小硬件验收.md](./docs/Day0/Day-0.4-最小硬件验收.md) |
+调试工具：
+```bash
+# 启动浏览器实时预览
+cd /opt/snap2know
+source .venv/bin/activate
+python device_agent/tools/camera_stream.py
+# 在浏览器打开 http://<Pi-IP>:8080
+```
 
-### Week 1-2：开发计划
+### 🎤 唤醒不灵敏
+- 检查麦克风增益：`alsamixer` → 调整 Capture 音量
+- 环境噪音：远离空调/风扇
 
-| Week | Day | 任务 |
-|------|-----|------|
-| 1 | 1 | MBP 基础设施 + 会话 API |
-| 1 | 2 | STT + TTS API |
-| 1 | 3 | OCR 入库 |
-| 1 | 4 | WS 流式问答 |
-| 1 | 5 | Pi Device Agent 骨架 + 硬件封装 |
-| 1 | 6 | 状态机 + LCD 渲染 |
-| 1 | 7 | MBP 通信 + 音频处理 |
-| 2 | 8 | LCD 状态渲染完善 |
-| 2 | 9-10 | 全链路集成测试 |
-| 2 | 11 | 稳定性测试 |
-| 2 | 12 | Demo 脚本 + Prompt |
-| 2 | 13 | 文档 + 一键启动 |
-| 2 | 14 | 最终验收 |
+### 🔌 无法连接后端
+- 检查 MBP IP：`ifconfig` 获取正确 IP
+- 检查端口：MBP 后端运行在 8000 端口
+- 测试连接：`curl http://<MBP-IP>:8000/health`
+
+### 💥 服务崩溃
+```bash
+# 查看 systemd 日志
+sudo journalctl -u snap2know -f
+
+# 手动启动查看详细错误
+./start_agent.sh
+```
 
 ---
 
 ## 参考资料
 
+- [详细设计文档](./design.md)
+- [摄像头调试指南](./docs/camera-debug-guide.md)
 - [Whisplay HAT 官方文档](https://docs.pisugar.com/docs/product-wiki/whisplay/overview)
 - [Whisplay Driver GitHub](https://github.com/PiSugar/Whisplay)
-- [详细设计文档](./Design.md)
-- [学习路径与技术栈总结](./docs/learning_path.md)
-- [两周开发学习地图](./docs/two_week_roadmap.md)
+

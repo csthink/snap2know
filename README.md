@@ -196,10 +196,53 @@ sudo journalctl -u snap2know -f
 
 ---
 
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| **Pi 端** | Python 3.11+, PIL/Pillow, picamera2, Vosk (唤醒词), arecord/aplay, edge-tts |
+| **MBP 后端** | FastAPI, Qdrant (向量库), httpx, websockets |
+| **AI 服务** | Groq Whisper (STT), Claude Sonnet (OCR/RAG), OpenAI (Embedding) |
+| **部署** | Docker (Qdrant), systemd (Device Agent) |
+
+---
+
+## API 接口概览
+
+| 接口 | 方法 | 用途 |
+|------|------|------|
+| `/session` | POST | 创建新会话 |
+| `/session/{id}` | DELETE | 清理会话数据 |
+| `/upload/image` | POST | 图片 OCR + 向量入库 |
+| `/upload/audio` | POST | 音频 STT 转写 |
+| `/ws/chat` | WS | 流式问答 |
+| `/tts` | POST | 文本转语音 |
+
+> 详细接口规格见 [design.md](./design.md#7-接口契约最终-mvp)
+
+---
+
+## 📊 项目状态
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| Day 0-4 | ✅ | 硬件验证 + 后端基础 |
+| Day 5-8 | ✅ | Device Agent 开发 |
+| Day 9-10 | ✅ | 全链路集成测试 |
+| Day 11 | ✅ | Wake-to-Photo + Prompt 固化 |
+| Day 12 | ✅ | 一键启动 + 文档完善 |
+| Day 13 | 🔜 | 最终验收 |
+
+**完成度：约 92%**
+
+> 详细进度见 [阶段性总结](./docs/stage-summary.md)
+
+---
+
 ## 参考资料
 
 - [详细设计文档](./design.md)
+- [阶段性总结](./docs/stage-summary.md)
 - [摄像头调试指南](./docs/camera-debug-guide.md)
 - [Whisplay HAT 官方文档](https://docs.pisugar.com/docs/product-wiki/whisplay/overview)
 - [Whisplay Driver GitHub](https://github.com/PiSugar/Whisplay)
-

@@ -690,7 +690,61 @@ else:
 5. Device Agent：清理本地缓存（照片、音频、TTS wav）
 6. 状态转为 idle → LCD 显示待机
 
----
+### 4.3 Wake-to-Photo 无感交互模式 (Day 11+)
+
+> **设计目标**：消除手动拍照步骤，实现"唤醒即拍"的无感体验
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  用户操作                  Pi Device Agent              MBP 后端    │
+├─────────────────────────────────────────────────────────────────────┤
+│  "小帮，小帮"                                                        │
+│    │                                                                │
+│    ↓                                                                │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ 1. 唤醒词检测 (Vosk) → 触发会话                               │   │
+│  │ 2. 判断是否需要拍照 (Session Context)                         │   │
+│  │    - 新会话 (60s 超时) 或无照片 → 自动拍照                     │   │
+│  │    - 延续会话 (60s 内) 且有照片 → 跳过拍照                     │   │
+│  │ 3. 并行启动：拍照上传 + VAD 录音                              │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│           │ POST /upload/image ──────────────────→ OCR+切块+入库    │
+│           │                                                         │
+│  用户提问 │ VAD 录音 (静默2s自动结束)                               │
+│           │                                                         │
+│           │ POST /upload/audio ──────────────────→ STT              │
+│           │ ←───────────────── {question_text}                     │
+│           │                                                         │
+│           │ WS /ws/chat ─────────────────────────→ RAG+LLM 流式     │
+│           │ ←───────────────── {token...}                          │
+│           ↓                                                         │
+│  ┌─────────────────┐                                               │
+│  │ TTS 流式播放    │                                               │
+│  │ 状态→answering  │                                               │
+│  └────────┬────────┘                                               │
+│           │ 播放完成后等待下一轮唤醒 (60s Session Keep-Alive)        │
+│           ↓                                                         │
+│  用户追问 (60s内)                                                    │
+│    → 跳过拍照（复用已有上下文）                                      │
+│    → VAD 录音 → STT → 问答 → TTS                                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Session Context 管理**
+
+| 配置项 | 值 | 说明 |
+|--------|------|------|
+| `SESSION_KEEP_ALIVE` | 60s | 会话保持时间：60s 内再次唤醒视为同一会话 |
+| `has_photo` | bool | 当前会话是否已拍照 |
+| `last_active_time` | timestamp | 上次活跃时间 |
+
+**拍照判定逻辑**
+```python
+should_take_photo = (time_since_last > SESSION_KEEP_ALIVE) or (not session_context["has_photo"])
+```
+
+**语音命令支持**
+- 用户说 **"拍一张"** 或 **"拍照"** → 强制触发新拍照（覆盖会话判断）
 
 ## 5. 语音播报（TTS）验收规格
 
@@ -1000,8 +1054,9 @@ mode = "auto"  # auto | edge | local | cloud
 - 图片入库（OCR/RAG ingestion）：
   - **Claude Sonnet（Vision）OCR（主）** → block 切块（200–500 chars）→ OpenAI Embedding → Qdrant upsert
   - **备选**：GPT-4o Vision OCR（超时回退）
-- 音频 STT：
-  - OpenAI audio/transcriptions → question_text
+- 音频 STT（Day 9 优化）：
+  - **主**：Groq Whisper API（distil-whisper-large-v3-en，低延迟）
+  - **备选**：本地 Faster-Whisper（M2 Max GPU 加速，离线可用）
 - 问答编排：
   - Qdrant TopK → 组 prompt → Claude Sonnet 流式生成 → WS token 回推
 - 可观测性：trace_id、耗时分解、错误码
@@ -1351,12 +1406,36 @@ def stop_playback_stream():
 - espeak-ng（TTS 降级/离线模式）
 - httpx, websockets（后端通信）
 
-**音频设备配置**：
-```bash
-# 启动时探测 WM8960 声卡号
-CARD_NUM=$(aplay -l | grep -i wm8960 | head -1 | sed 's/card \([0-9]*\):.*/\1/')
-export AUDIO_DEVICE="plughw:${CARD_NUM},0"
+**音频设备配置（Day 12 优化：动态检测）**：
+
+> 消除硬编码 card 号，启动时自动检测 WM8960 和 USB 麦克风
+
+```python
+# config.py 中的动态检测函数
+def detect_audio_devices() -> Tuple[str, str]:
+    """启动时自动检测声卡设备"""
+    result = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
+    wm8960_device = "plughw:1,0"  # 默认
+    usb_mic_device = "plughw:3,0"  # 默认
+    
+    for line in result.stdout.split('\n'):
+        if 'card' in line.lower() and ':' in line:
+            match = re.search(r'card\s+(\d+):', line)
+            if match:
+                card_num = match.group(1)
+                if 'wm8960' in line.lower():
+                    wm8960_device = f"plughw:{card_num},0"
+                elif 'usb' in line.lower():
+                    usb_mic_device = f"plughw:{card_num},0"
+    
+    return wm8960_device, usb_mic_device
 ```
+
+**设备用途**：
+| 设备 | 用途 |
+|------|------|
+| WM8960 (Whisplay HAT) | 录音播放主设备 |
+| USB 麦克风 | 唤醒词检测专用（避免回声干扰）|
 
 **全局默认声卡设置（推荐）**：
 

@@ -1701,35 +1701,34 @@ ssh -t mars@raspberrypi "cd /opt/snap2know/device_agent && sudo /opt/snap2know/.
 
 ---
 
-#### Day 11：Demo 脚本 + Prompt 固化
+#### Day 11：Demo 脚本 + Prompt 固化 (✅ 已完成)
 
 **交付**
-- 路由器说明书 Demo 脚本（3 个标准问题）
-- Prompt 固化（步骤化 + 风险提示模板）
-- 语音播报优化（语速、分段）
+- [x] 路由器说明书 Demo 脚本（3 个标准问题）
+- [x] Prompt 固化（步骤化 + 风险提示模板）
+- [x] 语音播报优化（语速、分段、特殊字符清洗）
+- [x] **新增特性**: Wake-to-Photo (唤醒即拍) 无感交互
+- [x] **性能优化**: 摄像头预热 (Camera Warmup) & 智能会话上下文 (Smart Session Context)
 
 **验收**
-Demo 脚本：
-1. "如何登录管理后台" → 返回步骤 + 默认密码提示
-2. "如何修改 WiFi 名称和密码" → 返回步骤
-3. "如何恢复出厂设置" → 返回步骤 + ⚠ 风险提示
+- [x] Demo 脚本 A：唤醒即拍 -> 问答 -> 追问 (不重复拍)
+- [x] Demo 脚本 B：打断与话题切换
+- [x] 调试工具：`camera_stream.py` 浏览器实时预览
 
 ---
 
 #### Day 12：文档 + 一键启动
 
 **交付**
-- README.md：部署指南、一键启动脚本、故障排查
-- 启动脚本：`./start.sh` 一键启动所有服务
-- 开机自启配置（可选）
+- 项目交接文档 (Handover Docs)
+- 一键启动脚本 (One-Key Start Script)
+- 系统与故障排查指南
 
 **验收**
 ```bash
-# 在干净环境测试
-git clone ...
-cd Snap2Know
-./start.sh  # 一键启动所有服务
-# 等待 30s 后即可使用
+# 在 Pi 上一键启动所有服务 (后端 + Agent)
+cd /opt/snap2know
+./start_all.sh
 ```
 
 ---
@@ -1748,7 +1747,7 @@ cd Snap2Know
 3. 恢复出厂设置（含风险提示）✓
 
 每次验证：
-- [ ] 拍照成功（LED 闪烁）
+- [ ] 拍照成功（LED 闪烁，后台可见图片）
 - [ ] 录音 → STT 正确
 - [ ] 流式回答 + 语音播报
 - [ ] 新建会话清理可验证
@@ -1766,17 +1765,13 @@ cd Snap2Know
 **Pi 端**
 - `device_agent/` Python 源码
   - `main.py` - 入口
-  - `state_machine.py` - 状态机
-  - `ui_renderer.py` - LCD 渲染（PIL/Pillow）
-  - `input_handler.py` - 按键识别
-  - `backend_client.py` - MBP 通信
-  - `audio_pipeline.py` - 录音/播放
-  - `hardware/` - 硬件封装（LED、LCD、Camera）
+  - `hardware/` - 硬件封装（LED、LCD、Camera IMX500）
+  - `tools/` - 调试工具 (focus test, stream)
 - `assets/` - 图标 PNG + 字体 TTF
 
 **文档**
 - `README.md` - 部署指南、一键启动、故障排查
-- （可选）`ops.md` - 指标、日志、成本估算
+- `docs/camera-debug-guide.md` - 摄像头调试指南
 
 ---
 
@@ -1785,14 +1780,13 @@ cd Snap2Know
 | 项目 | 决策 | 备注 |
 |------|------|------|
 | **Pi 端架构** | ✅ 纯 Python 单进程直绘 LCD | 不使用 Chromium，SPI 直驱 |
-| **UI 渲染** | ✅ PIL/Pillow + Whisplay 驱动 | 事件驱动刷新，10-15 FPS 上限 |
-| **摄像头** | ✅ picamera2 | Pi 官方 AI Camera |
+| **交互逻辑** | ✅ Wake-to-Photo (唤醒即拍) | 取代手动拍摄，提升无感体验 |
+| **会话管理** | ✅ Smart Session (60s 上下文) | 短时间内追问不重复拍照 |
+| **摄像头** | ✅ picamera2 | Pi 官方 AI Camera，需预热 (Warmup) |
 | **音频** | ✅ WM8960 arecord/aplay | Whisplay HAT 内置 |
-| **TTS** | ✅ edge-tts（默认）/ espeak-ng（降级） | 自然语音、免费、离线可用 |
-| **按键交互** | ✅ 单键 Push-to-Talk | 短按/长按/超长按 |
+| **TTS** | ✅ edge-tts（默认） | 增加 Regex 清洗，移除 Markdown |
+| **调试** | ✅ MJPEG Streamer | 浏览器实时预览对焦 |
 | **状态机** | ✅ 7 状态（含 Busy 子阶段） | 优先级显示 + 800ms 驻留 |
-| **状态协议** | ✅ UIState dataclass | 单一真相源 |
-
 
 ## 14. 未来路线图 (Roadmap)
 

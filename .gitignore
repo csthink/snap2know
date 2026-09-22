@@ -18,9 +18,9 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Environment
-.env
-*.env.local
+# Environment: ignore every .env variant (.env, .env.local, '.env copy', ...), keep only the example
+.env*
+!.env.example
 
 # Logs
 *.log

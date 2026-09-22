@@ -25,9 +25,8 @@ Thumbs.db
 # Logs
 *.log
 
-# Qdrant data (keep structure, ignore contents)
-mbp/qdrant_storage/*.json
-!mbp/qdrant_storage/.gitkeep
+# Qdrant runtime data (Docker bind mount, created on first start)
+mbp/qdrant_storage/
 
 # Models
 mbp/snap2know/models/
